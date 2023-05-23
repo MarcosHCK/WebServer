@@ -14,9 +14,9 @@
  * You should have received a copy of the GNU General Public License
  * along with WebbServer. If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef __WEBSERVER__
-#define __WEBSERVER__ 1
-#include <gio/gio.h>
+#ifndef __WEB_SERVER__
+#define __WEB_SERVER__ 1
+#include <glib-object.h>
 
 #define WEB_TYPE_SERVER (web_server_get_type ())
 #define WEB_SERVER(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), WEB_TYPE_SERVER, WebServer))
@@ -28,11 +28,14 @@ extern "C" {
 #endif // __cplusplus
 
   G_GNUC_INTERNAL GType web_server_get_type (void) G_GNUC_CONST;
+  G_GNUC_INTERNAL WebServer* web_server_new (guint16 port, GError** error);
   G_GNUC_INTERNAL const gchar* web_server_get_home_dir (WebServer* web_server);
   G_GNUC_INTERNAL guint16 web_server_get_port (WebServer* web_server);
+  G_GNUC_INTERNAL void web_server_start (WebServer* web_server);
+  G_GNUC_INTERNAL void web_server_stop (WebServer* web_server);
 
 #if __cplusplus
 }
 #endif // __cplusplus
 
-#endif // __WEBSERVER__
+#endif // __WEB_SERVER__

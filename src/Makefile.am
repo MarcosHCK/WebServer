@@ -30,7 +30,10 @@ noinst_HEADERS=webserver.h
 # - sources
 #
 
-webserver_SOURCES=webserver.c 
+webserver_SOURCES=\
+	main.c \
+	webclient.c \
+	webserver.c
 webserver_CFLAGS=-flto \
 	-DG_LOG_DOMAIN=\"Jash\" \
 	-DG_LOG_USE_STRUCTURED=1 \
