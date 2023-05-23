@@ -23,7 +23,9 @@ VOID=
 #
 
 bin_PROGRAMS=webserver
-noinst_HEADERS=webserver.h
+noinst_HEADERS=\
+	webclient.h \
+	webserver.h
 
 #
 # Binaries and libraries

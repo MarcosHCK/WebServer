@@ -28,6 +28,7 @@ typedef struct _WebServerClass WebServerClass;
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
 static void web_server_g_async_initable_iface (GAsyncInitableIface* iface);
 static void web_server_g_initable_iface (GInitableIface* iface);
+typedef struct _AcceptData AcceptData;
 
 struct _WebServer
 {
@@ -57,6 +58,13 @@ struct _WebServerClass
   GApplicationClass parent;
 };
 
+struct _AcceptData
+{
+  WebServer* self;
+  GCancellable* cancellable;
+  gboolean secure;
+};
+
 enum
 {
   prop_0,
@@ -65,12 +73,19 @@ enum
   prop_number,
 };
 
+enum
+{
+  signal_incoming,
+  signal_number,
+};
+
 G_DEFINE_FINAL_TYPE_WITH_CODE
   (WebServer, web_server, G_TYPE_APPLICATION,
    G_IMPLEMENT_INTERFACE (G_TYPE_INITABLE, web_server_g_initable_iface)
    G_IMPLEMENT_INTERFACE (G_TYPE_ASYNC_INITABLE, web_server_g_async_initable_iface));
 
 static GParamSpec* properties [prop_number] = {0};
+static guint signals [signal_number] = {0};
 
 static void web_server_g_async_initable_iface (GAsyncInitableIface* iface)
 {
@@ -204,10 +219,17 @@ static void web_server_class_init (WebServerClass* klass)
 
   const GParamFlags flags1 = G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS;
   const GParamFlags flags2 = G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS;
+        GType gtype = G_TYPE_FROM_CLASS (klass);
+  const GSignalFlags flags3 = G_SIGNAL_RUN_FIRST;
+  const GSignalAccumulator accumulator1 = g_signal_accumulator_true_handled;
+  const GSignalCMarshaller marshaller1 = g_cclosure_marshal_VOID__OBJECT;
+  const GSignalCVaMarshaller vamarshaller1 = g_cclosure_marshal_VOID__OBJECTv;
 
   properties [prop_active] = g_param_spec_boolean ("active", "active", "active", 0, flags2);
   properties [prop_port] = g_param_spec_uint ("port", "port", "port", 0, G_MAXUINT16, 0, flags1);
   g_object_class_install_properties (G_OBJECT_CLASS (klass), prop_number, properties);
+  signals [signal_incoming] = g_signal_new ("incoming", gtype, flags3, 0, accumulator1, NULL, marshaller1, G_TYPE_BOOLEAN, 1, WEB_TYPE_CLIENT);
+  g_signal_set_va_marshaller (signals [signal_incoming], gtype, vamarshaller1);
 }
 
 static void web_server_init (WebServer* self)
@@ -231,7 +253,25 @@ guint16 web_server_get_port (WebServer* web_server)
 return web_server->port;
 }
 
-static gboolean accept_source (GSocket* socket, GIOCondition condition, WebServer* self)
+static void emit_client (WebServer* self, GIOStream* stream)
+{
+  WebClient* client = web_client_new (stream);
+  GValue param_values [2] = { G_VALUE_INIT, G_VALUE_INIT, };
+  GValue return_value [1] = { G_VALUE_INIT, };
+
+  g_value_init (return_value, G_TYPE_BOOLEAN);
+  g_value_init_from_instance (param_values + 0, self);
+  g_value_init_from_instance (param_values + 1, client);
+  g_object_unref (client);
+
+  g_signal_emitv (param_values, signals [signal_incoming], 0, return_value);
+
+  g_value_unset (param_values + 1);
+  g_value_unset (param_values + 0);
+  g_value_unset (return_value);
+}
+
+static gboolean accept_source (GSocket* socket, GIOCondition condition, AcceptData* data)
 {
   if (g_source_is_destroyed (g_main_current_source ()))
     return G_SOURCE_REMOVE;
@@ -245,21 +285,37 @@ static gboolean accept_source (GSocket* socket, GIOCondition condition, WebServe
           case G_IO_ERR:
             {
               g_critical ("(" G_STRLOC "): socket error, shuting down");
-              g_application_quit (G_APPLICATION (self));
+              g_application_quit (G_APPLICATION (data->self));
             }
 
           case G_IO_IN:
             {
               GError* tmperr = NULL;
-              GSocket* client = g_socket_accept (socket, self->cancellable, &tmperr);
+              GSocket* client_socket = g_socket_accept (socket, data->cancellable, &tmperr);
+              GSocketConnection* connection = g_socket_connection_factory_create_connection (socket);
+              GIOStream* stream = (gpointer) connection;
 
-              g_socket_close (client, NULL);
-              g_object_unref (client);
+              if (data->secure == FALSE)
+                {
+                  emit_client (data->self, stream);
+                  g_object_unref (connection);
+                }
+              else
+                {
+                  g_assert_not_reached ();
+                }
               break;
             }
         }
     }
 return G_SOURCE_CONTINUE;
+}
+
+static void accept_data_free (AcceptData* data)
+{
+  _g_object_unref0 (data->self);
+  _g_object_unref0 (data->cancellable);
+  g_slice_free (AcceptData, data);
 }
 
 void web_server_start (WebServer* web_server)
@@ -277,15 +333,20 @@ void web_server_start (WebServer* web_server)
       if (self->sockets [i] != NULL)
         {
           GSourceFunc func = (GSourceFunc) accept_source;
-          GDestroyNotify notify = (GDestroyNotify) g_object_unref;
+          GDestroyNotify notify = (GDestroyNotify) accept_data_free;
           GSource* source = g_socket_create_source (self->sockets [i], G_IO_IN, self->cancellable);
           GMainContext* context = g_main_context_get_thread_default ();
+          AcceptData* data = g_slice_new (AcceptData);
+
+          data->self = g_object_ref (self);
+          data->cancellable = g_object_ref (self->cancellable);
+          data->secure = FALSE;
 
           g_source_attach (source, context);
-          g_source_set_callback (source, func, self, notify);
+          g_source_set_callback (source, func, data, notify);
           g_source_set_priority (source, G_PRIORITY_DEFAULT_IDLE);
           g_source_set_static_name (source, "[WebServer.AcceptSource]");
-          g_object_ref ((g_source_unref (source), self));
+          g_source_unref (source);
         }
 
       g_application_hold (G_APPLICATION (self));
