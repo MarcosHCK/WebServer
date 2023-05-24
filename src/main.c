@@ -16,13 +16,20 @@
  */
 #include <config.h>
 #include <gio/gio.h>
+#include <webclient.h>
 #include <webserver.h>
+#include <workqueue.h>
 
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
 
 static void on_activate (WebServer* web_server)
 {
   g_message ("Ready");
+}
+
+static gboolean on_incoming (WebServer* web_server, WebClient* client)
+{
+return TRUE;
 }
 
 int main (int argc, gchar* argv [])
@@ -70,25 +77,12 @@ int main (int argc, gchar* argv [])
       gchar* home_dir = "/var/www";
       gpointer web_server;
 
+      WorkQueue* work_queue;
+
       while (TRUE)
         {
           if (argc > 1)
             {
-              if (argc > 2)
-                {
-                  if (argc > 3)
-                    {
-                      g_critical ("(" G_STRLOC "): Too many options");
-                      break;
-                    }
-
-                  if (!g_file_test (home_dir = argv [2], G_FILE_TEST_IS_DIR))
-                    {
-                      g_critical ("(" G_STRLOC"): Home directory is not such thing");
-                      break;
-                    }
-                }
-
               GError* tmperr = NULL;
               guint64 port_;
 
@@ -104,12 +98,34 @@ int main (int argc, gchar* argv [])
                   g_error_free ((exit_code = -1, tmperr));
                   break;
                 }
+
+              if (argc > 2)
+                {
+                  if (!g_file_test (home_dir = argv [2], G_FILE_TEST_IS_DIR))
+                    {
+                      g_critical ("(" G_STRLOC"): Home directory is not such thing");
+                      break;
+                    }
+
+                  if (argc > 3)
+                    {
+                      g_critical ("(" G_STRLOC "): Too many options");
+                      break;
+                    }
+                }
             }
 
-          if ((web_server = web_server_new (port, &tmperr)), G_UNLIKELY (tmperr == NULL))
+          web_server = web_server_new (port, &tmperr);
+          work_queue = work_queue_new ();
+
+          if (G_UNLIKELY (tmperr == NULL))
             {
-              g_signal_connect (web_server, "activate", G_CALLBACK (on_activate), NULL);
+              g_signal_connect_object (web_server, "activate", G_CALLBACK (on_activate), work_queue, 0);
+              g_signal_connect_object (web_server, "incoming", G_CALLBACK (on_incoming), work_queue, 0);
+
               web_server_start (web_server);
+              exit_code = g_application_run (web_server, 0, NULL);
+              web_server_stop (web_server);
             }
           else
             {
@@ -119,13 +135,10 @@ int main (int argc, gchar* argv [])
 
               g_critical ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
               g_error_free ((exit_code = -1, tmperr));
-              g_object_unref (web_server);
             }
 
-          exit_code = g_application_run (web_server, 0, NULL);
-
-          web_server_stop (web_server);
           _g_object_unref0 (web_server);
+          _g_object_unref0 (work_queue);
           break;
         }
     }

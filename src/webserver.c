@@ -298,12 +298,14 @@ static gboolean accept_source (GSocket* socket, GIOCondition condition, AcceptDa
               if (data->secure == FALSE)
                 {
                   emit_client (data->self, stream);
-                  g_object_unref (connection);
                 }
               else
                 {
                   g_assert_not_reached ();
                 }
+
+                g_object_unref (connection);
+                g_object_unref (client_socket);
               break;
             }
         }
