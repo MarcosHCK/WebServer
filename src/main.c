@@ -24,123 +24,35 @@
 
 static void on_activate (WebServer* web_server)
 {
-  g_message ("Ready");
+  GFile* defaults [] =
+    {
+      g_file_new_for_commandline_arg ("8080"),
+      g_file_new_for_commandline_arg ("/var/www"),
+    };
+
+  g_application_open (G_APPLICATION (web_server), defaults, G_N_ELEMENTS (defaults), NULL);
+  _g_object_unref0 (defaults [1]); _g_object_unref0 (defaults [0]);
 }
 
-static gboolean on_incoming (WebServer* web_server, WebClient* client)
+static gboolean on_incoming (WebServer* web_server, WebClient* web_client, WorkQueue* work_queue)
 {
-return TRUE;
+  return (work_queue_push (work_queue, web_client), TRUE);
 }
 
 int main (int argc, gchar* argv [])
 {
-  const gchar* lang_domain = "en_US";
-  const gchar* description_string = "";
-  const gchar *parameter_string = "<port> <home_dir>";
-  const gchar* summary_string = "";
+  guint exit_code = 0;
+  WebServer* web_server = web_server_new ("application-id", "org.hck.webserver", "flags", G_APPLICATION_HANDLES_OPEN, NULL);
+  WorkQueue* work_queue = work_queue_new ();
 
-  GOptionContext* context = NULL;
-  GError* tmperr = NULL;
-  gint exit_code = 0;
+  g_signal_connect_object (web_server, "activate", G_CALLBACK (on_activate), work_queue, 0);
+  g_signal_connect_object (web_server, "incoming", G_CALLBACK (on_incoming), work_queue, 0);
+  web_server_start (web_server);
 
-  context = g_option_context_new (parameter_string);
-#ifdef G_OS_WIN32
-  argv = g_win32_get_command_line ();
-#endif // G_OS_WIN32
-  g_option_context_set_description (context, description_string);
-  g_option_context_set_help_enabled (context, TRUE);
-  g_option_context_set_ignore_unknown_options (context, FALSE);
-  g_option_context_set_strict_posix (context, FALSE);
-  g_option_context_set_summary (context, summary_string);
-  g_option_context_set_translation_domain (context, lang_domain);
-#ifdef G_OS_WIN32
-#define _g_strfreev1 g_strfreev
-  g_option_context_parse_strv (context, &argv, &tmperr);
-  argc = g_strv_length (argv);
-#else // G_OS_WIN32
-#define _g_strfreev1(argv) ((void) argv)
-  g_option_context_parse (context, &argc, &argv, &tmperr);
-#endif // G_OS_WIN32
+  exit_code = g_application_run (G_APPLICATION (web_server), argc, argv);
 
-  if (g_option_context_free (context), G_UNLIKELY (tmperr != NULL))
-    {
-      const gchar* domain = g_quark_to_string (tmperr->domain);
-      const gchar* message = tmperr->message;
-      const guint code = tmperr->code;
-
-      g_critical ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
-      g_error_free ((exit_code = -1, tmperr));
-    }
-  else
-    {
-      guint port = 80;
-      gchar* home_dir = "/var/www";
-      gpointer web_server;
-
-      WorkQueue* work_queue;
-
-      while (TRUE)
-        {
-          if (argc > 1)
-            {
-              GError* tmperr = NULL;
-              guint64 port_;
-
-              if ((g_ascii_string_to_unsigned (argv [1], 10, 0, G_MAXUINT16, &port_, &tmperr)), G_UNLIKELY (tmperr == NULL))
-                port = (guint) port_;
-              else
-                {
-                  const gchar* domain = g_quark_to_string (tmperr->domain);
-                  const gchar* message = tmperr->message;
-                  const guint code = tmperr->code;
-
-                  g_critical ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
-                  g_error_free ((exit_code = -1, tmperr));
-                  break;
-                }
-
-              if (argc > 2)
-                {
-                  if (!g_file_test (home_dir = argv [2], G_FILE_TEST_IS_DIR))
-                    {
-                      g_critical ("(" G_STRLOC"): Home directory is not such thing");
-                      break;
-                    }
-
-                  if (argc > 3)
-                    {
-                      g_critical ("(" G_STRLOC "): Too many options");
-                      break;
-                    }
-                }
-            }
-
-          web_server = web_server_new (port, &tmperr);
-          work_queue = work_queue_new ();
-
-          if (G_UNLIKELY (tmperr == NULL))
-            {
-              g_signal_connect_object (web_server, "activate", G_CALLBACK (on_activate), work_queue, 0);
-              g_signal_connect_object (web_server, "incoming", G_CALLBACK (on_incoming), work_queue, 0);
-
-              web_server_start (web_server);
-              exit_code = g_application_run (web_server, 0, NULL);
-              web_server_stop (web_server);
-            }
-          else
-            {
-              const gchar* domain = g_quark_to_string (tmperr->domain);
-              const gchar* message = tmperr->message;
-              const guint code = tmperr->code;
-
-              g_critical ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
-              g_error_free ((exit_code = -1, tmperr));
-            }
-
-          _g_object_unref0 (web_server);
-          _g_object_unref0 (work_queue);
-          break;
-        }
-    }
-return (_g_strfreev1 (argv), exit_code);
+  web_server_stop (web_server);
+  _g_object_unref0 (web_server);
+  _g_object_unref0 (work_queue);
+return exit_code;
 }

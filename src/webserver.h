@@ -28,9 +28,7 @@ extern "C" {
 #endif // __cplusplus
 
   G_GNUC_INTERNAL GType web_server_get_type (void) G_GNUC_CONST;
-  G_GNUC_INTERNAL WebServer* web_server_new (guint16 port, GError** error);
-  G_GNUC_INTERNAL const gchar* web_server_get_home_dir (WebServer* web_server);
-  G_GNUC_INTERNAL guint16 web_server_get_port (WebServer* web_server);
+  G_GNUC_INTERNAL WebServer* web_server_new (const gchar* first_property_name, ...);
   G_GNUC_INTERNAL void web_server_start (WebServer* web_server);
   G_GNUC_INTERNAL void web_server_stop (WebServer* web_server);
 

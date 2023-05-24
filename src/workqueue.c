@@ -86,3 +86,10 @@ WorkQueue* work_queue_new ()
 {
   return g_object_new (WORK_TYPE_QUEUE, NULL);
 }
+
+void work_queue_push (WorkQueue* work_queue, WebClient* web_client)
+{
+  g_return_if_fail (WORK_IS_QUEUE (work_queue));
+  g_return_if_fail (WEB_IS_CLIENT (web_client));
+  g_thread_pool_push (work_queue->thread_pool, g_object_ref (web_client), NULL);
+}
