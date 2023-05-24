@@ -57,8 +57,33 @@ static void work_queue_class_init (WorkQueueClass* klass)
   G_OBJECT_CLASS (klass)->finalize = work_queue_class_finalize;
 }
 
-static void process (WebClient* client, WorkQueue* self)
+static void process (WebClient* web_client, WorkQueue* self)
 {
+  WebRequest* request = NULL;
+  GError* tmperr = NULL;
+
+  if ((request = web_client_fetch (web_client, &tmperr)), G_UNLIKELY (tmperr != NULL))
+    {
+      if (g_error_matches (tmperr, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK))
+        {
+          work_queue_push (self, web_client);
+          g_error_free (tmperr);
+        }
+      else
+        {
+          if (g_error_matches (tmperr, G_IO_ERROR, G_IO_ERROR_CONNECTION_CLOSED))
+            g_error_free (tmperr);
+          else
+            {
+              const gchar* domain = g_quark_to_string (tmperr->domain);
+              const gchar* message = tmperr->message;
+              const guint code = tmperr->code;
+
+              g_critical ("(" G_STRLOC "): %s: %i: %s", domain, code, message);
+              g_error_free (tmperr);
+            }
+        }
+    }
 }
 
 static void work_queue_init (WorkQueue* self)

@@ -230,7 +230,7 @@ static gboolean accept_source (GSocket* socket, GIOCondition condition, AcceptDa
               GError* tmperr = NULL;
               GCancellable* cancellable = data->endpoint->cancellable;
               GSocket* client_socket = g_socket_accept (socket, cancellable, &tmperr);
-              GSocketConnection* connection = g_socket_connection_factory_create_connection (socket);
+              GSocketConnection* connection = g_socket_connection_factory_create_connection (client_socket);
               GIOStream* stream = (gpointer) connection;
 
               emit_client (data->web_server, stream);

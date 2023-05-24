@@ -31,6 +31,9 @@ struct _WebClient
 
   /* private */
   GIOStream* stream;
+  GPtrArray* rejected;
+  GDataInputStream* istream;
+  GDataOutputStream* ostream;
 };
 
 struct _WebClientClass
@@ -48,10 +51,29 @@ enum
 G_DEFINE_FINAL_TYPE (WebClient, web_client, G_TYPE_OBJECT);
 static GParamSpec* properties [prop_number] = {0};
 
+static void web_client_class_constructed (GObject* pself)
+{
+  WebClient* self = (gpointer) pself;
+G_OBJECT_CLASS (web_client_parent_class)->constructed (pself);
+  self->istream = g_data_input_stream_new (g_io_stream_get_input_stream (self->stream));
+  self->ostream = g_data_output_stream_new (g_io_stream_get_output_stream (self->stream));
+
+  if (G_IS_SOCKET_CONNECTION (self->stream))
+    {
+      g_socket_set_blocking (g_socket_connection_get_socket ((gpointer) self->stream), FALSE);
+    }
+
+  g_data_input_stream_set_byte_order (self->istream, G_DATA_STREAM_BYTE_ORDER_BIG_ENDIAN);
+  g_data_output_stream_set_byte_order (self->ostream, G_DATA_STREAM_BYTE_ORDER_BIG_ENDIAN);
+  g_data_input_stream_set_newline_type (self->istream, G_DATA_STREAM_NEWLINE_TYPE_CR_LF);
+}
+
 static void web_client_class_dispose (GObject* pself)
 {
   WebClient* self = (gpointer) pself;
   _g_object_unref0 (self->stream);
+  _g_object_unref0 (self->istream);
+  _g_object_unref0 (self->ostream);
 G_OBJECT_CLASS (web_client_parent_class)->dispose (pself);
 }
 
@@ -95,6 +117,7 @@ static void web_client_class_set_property (GObject* pself, guint property_id, co
 
 static void web_client_class_init (WebClientClass* klass)
 {
+  G_OBJECT_CLASS (klass)->constructed = web_client_class_constructed;
   G_OBJECT_CLASS (klass)->dispose = web_client_class_dispose;
   G_OBJECT_CLASS (klass)->finalize = web_client_class_finalize;
   G_OBJECT_CLASS (klass)->get_property = web_client_class_get_property;
@@ -108,11 +131,49 @@ static void web_client_class_init (WebClientClass* klass)
 
 static void web_client_init (WebClient* self)
 {
+  self->rejected = g_ptr_array_new ();
 }
 
 WebClient* web_client_new (GIOStream* stream)
 {
   return g_object_new (WEB_TYPE_CLIENT, "stream", stream, NULL);
+}
+
+WebRequest* web_client_fetch (WebClient* web_client, GError** error)
+{
+  g_return_val_if_fail (WEB_IS_CLIENT (web_client), NULL);
+  WebClient* self = (web_client);
+  WebRequest* reqest = NULL;
+  GError* tmperr = NULL;
+  gsize length;
+  gchar* line;
+
+  while (TRUE)
+    {
+      if ((line = g_data_input_stream_read_line (self->istream, &length, NULL, &tmperr)), G_UNLIKELY (tmperr != NULL))
+        {
+          _g_free0 (line);
+          g_propagate_error (error, tmperr);
+          return NULL;
+        }
+      else
+        {
+          g_print ("got line %i:'%s'\n", length, line);
+          if (length > 0)
+            g_ptr_array_add (self->rejected, line);
+          else
+            {
+                g_print ("REQUEST\n  {\n");
+              for (guint i = 0; i < self->rejected->len; ++i)
+                g_print ("    %s\n", self->rejected->pdata [i]);
+                g_print ("  }\n");
+
+              g_ptr_array_remove_range (self->rejected, 0, self->rejected->len - 1);
+              break;
+            }
+        }
+    }
+return (reqest);
 }
 
 GIOStream* web_client_get_stream (WebClient* web_client)

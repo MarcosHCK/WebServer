@@ -22,6 +22,7 @@
 #define WEB_CLIENT(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), WEB_TYPE_CLIENT, WebClient))
 #define WEB_IS_CLIENT(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WEB_TYPE_CLIENT))
 typedef struct _WebClient WebClient;
+typedef struct _WebRequest WebRequest;
 
 #if __cplusplus
 extern "C" {
@@ -29,6 +30,7 @@ extern "C" {
 
   G_GNUC_INTERNAL GType web_client_get_type (void) G_GNUC_CONST;
   G_GNUC_INTERNAL WebClient* web_client_new (GIOStream* stream);
+  G_GNUC_INTERNAL WebRequest* web_client_fetch (WebClient* web_client, GError** error);
   G_GNUC_INTERNAL GIOStream* web_client_get_stream (WebClient* web_client);
 
 #if __cplusplus
