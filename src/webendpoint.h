@@ -14,28 +14,25 @@
  * You should have received a copy of the GNU General Public License
  * along with WebServer. If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef __WEB_SERVER__
-#define __WEB_SERVER__ 1
+#ifndef __WEB_ENDPOINT__
+#define __WEB_ENDPOINT__ 1
 #include <gio/gio.h>
-#include <webhttpversion.h>
-#include <weblistenoptions.h>
 
-#define WEB_TYPE_SERVER (web_server_get_type ())
-#define WEB_SERVER(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), WEB_TYPE_SERVER, WebServer))
-#define WEB_IS_SERVER(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WEB_TYPE_SERVER))
-typedef struct _WebServer WebServer;
+#define WEB_TYPE_ENDPOINT (web_endpoint_get_type ())
+#define WEB_ENDPOINT(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), WEB_TYPE_ENDPOINT, WebEndpoint))
+#define WEB_IS_ENDPOINT(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WEB_TYPE_ENDPOINT))
+typedef struct _WebEndpoint WebEndpoint;
 
 #if __cplusplus
 extern "C" {
 #endif // __cplusplus
 
-  G_GNUC_INTERNAL GType web_server_get_type (void) G_GNUC_CONST;
-  G_GNUC_INTERNAL WebServer* web_server_new (WebHttpVersion http_version);
-  G_GNUC_INTERNAL void web_server_listen (WebServer* web_server, GSocketAddress* address, WebListenOptions options, GError** error);
-  G_GNUC_INTERNAL void web_server_listen_any (WebServer* web_server, guint16 port, WebListenOptions options, GError** error);
+  G_GNUC_INTERNAL GType web_endpoint_get_type (void) G_GNUC_CONST;
+  G_GNUC_INTERNAL WebEndpoint* web_endpoint_new (GSocket* socket, GError** error);
+  G_GNUC_INTERNAL GSocket* web_endpoint_get_socket (WebEndpoint* web_endpoint);
 
 #if __cplusplus
 }
 #endif // __cplusplus
 
-#endif // __WEB_SERVER__
+#endif // __WEB_ENDPOINT__

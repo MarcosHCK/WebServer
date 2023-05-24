@@ -25,9 +25,11 @@ VOID=
 bin_PROGRAMS=webserver
 
 noinst_HEADERS=\
-	webclient.h \
-	webserver.h \
-	workqueue.h
+	webconnection.h \
+	webendpoint.h \
+	webhttpversion.h \
+	weblistenoptions.h \
+	webserver.h
 
 #
 # Binaries and libraries
@@ -36,11 +38,13 @@ noinst_HEADERS=\
 
 webserver_SOURCES=\
 	main.c \
-	webclient.c \
-	webserver.c \
-	workqueue.c
+	webconnection.c \
+	webendpoint.c \
+	webhttpversion.c \
+	weblistenoptions.c \
+	webserver.c
 webserver_CFLAGS=-flto \
-	-DG_LOG_DOMAIN=\"Jash\" \
+	-DG_LOG_DOMAIN=\"WebServer\" \
 	-DG_LOG_USE_STRUCTURED=1 \
 	$(GIO_CFLAGS)
 webserver_LDFLAGS=-flto
