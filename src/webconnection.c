@@ -18,6 +18,9 @@
 #include <glib/gi18n.h>
 #include <gio/gnetworking.h>
 #include <webconnection.h>
+#include <webmessagefields.h>
+#include <webmessagemethods.h>
+#include <webrequest.h>
 
 #define WEB_CONNECTION_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST ((klass), WEB_TYPE_CONNECTION, WebConnectionClass))
 #define WEB_IS_CONNECTION_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), WEB_TYPE_CONNECTION))
@@ -46,9 +49,9 @@ struct _WebConnection
   {
     gsize allocated;
     gpointer buffer;
-    GQueue frames;
     gsize length;
-    GQueue lines;
+    GQueue frames;
+    WebRequest* request;
   } io;
 };
 
@@ -84,6 +87,8 @@ static void web_connection_class_dispose (GObject* pself)
   WebConnection* self = (gpointer) pself;
   _g_object_unref0 (self->connection);
   _g_object_unref0 (self->input_stream);
+  _g_object_unref0 (self->io.request);
+  g_queue_clear_full (& self->io.frames, g_object_unref);
   _g_object_unref0 (self->iostream);
   _g_object_unref0 (self->output_stream);
   _g_object_unref0 (self->socket);
@@ -94,8 +99,6 @@ static void web_connection_class_finalize (GObject* pself)
 {
   WebConnection* self = (gpointer) pself;
   g_free (self->io.buffer);
-  g_queue_clear_full (& self->io.frames, (GDestroyNotify) g_strfreev);
-  g_queue_clear_full (& self->io.lines, (GDestroyNotify) g_free);
 
   if (G_LIKELY (self->source != NULL))
     {
@@ -171,7 +174,7 @@ static void web_connection_class_init (WebConnectionClass* klass)
   signals [signal_connected] = g_signal_new ("connected", gtype, flags2, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 0);
   signals [signal_disconnected] = g_signal_new ("disconnected", gtype, flags2, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 0);
   signals [signal_request_failed] = g_signal_new ("request-failed", gtype, flags3, 0, NULL, NULL, marshaller2, G_TYPE_NONE, 1, G_TYPE_ERROR);
-  signals [signal_request_started] = g_signal_new ("request-started", gtype, flags3, 0, NULL, NULL, marshaller3, G_TYPE_NONE, 1, G_TYPE_OBJECT);
+  signals [signal_request_started] = g_signal_new ("request-started", gtype, flags3, 0, NULL, NULL, marshaller3, G_TYPE_NONE, 1, WEB_TYPE_MESSAGE);
 }
 
 static void web_connection_init (WebConnection* self)
@@ -179,9 +182,7 @@ static void web_connection_init (WebConnection* self)
   self->io.allocated = 0;
   self->io.buffer = NULL;
   self->io.length = 0;
-
-  g_queue_init (& self->io.frames);
-  g_queue_init (& self->io.lines);
+  self->io.request = NULL;
 }
 
 WebConnection* web_connection_new (GSocket* socket, WebHttpVersion http_version, gboolean is_https)
@@ -226,6 +227,7 @@ static GIOStatus input_io_read (InputIO* io, GPollableInputStream* stream, GErro
         return G_IO_STATUS_EOF;
       else
         {
+          WebRequest* request;
           gchar *line, **frame;
           guint framesz, linesz, ignore;
           gsize i, j, last = 0;
@@ -238,22 +240,23 @@ static GIOStatus input_io_read (InputIO* io, GPollableInputStream* stream, GErro
                 {
                   ignore = (i > 0 && G_STRUCT_MEMBER (gchar, io->buffer, i - 1) == '\r') ? 1 : 0;
                   linesz = (i - last) - ignore;
-                  line = (linesz == 0) ? NULL : g_strndup (& G_STRUCT_MEMBER (gchar, io->buffer, last), linesz);
+                  line = (linesz == 0) ? NULL : & G_STRUCT_MEMBER (gchar, io->buffer, last);
                   last = i + 1;
 
-                  if (linesz > 0)
-                    g_queue_push_tail (& io->lines, line);
+                  request = (io->request != NULL) ? io->request : (io->request = web_request_new ());
+
+                  if ((web_request_parse_line (request, line, linesz, &tmperr)), G_UNLIKELY (tmperr != NULL))
+                    {
+                      g_propagate_error (error, tmperr);
+                      return G_IO_STATUS_ERROR;
+                    }
                   else
                     {
-                      framesz = g_queue_get_length (& io->lines);
-                      frame = g_new0 (gchar*, framesz + 1);
-
-                      for (j = 0; j < framesz; ++j)
+                      if (web_request_is_complete (request))
                         {
-                          frame [j] = g_queue_pop_head (& io->lines);
+                          g_assert (web_message_get_field (WEB_MESSAGE (request), WEB_MESSAGE_FIELD_CONTENT_LENGTH) == NULL);
+                          g_queue_push_tail (& io->frames, g_steal_pointer (& io->request));
                         }
-
-                      g_queue_push_tail (& io->frames, frame);
                     }
                 }
             }
@@ -292,8 +295,8 @@ static gboolean input_source (GSocket* socket, GIOCondition condition, WebConnec
                 }
               else
                 {
-                  g_signal_emit (self, signals [signal_request_started], 0, NULL);
                   g_signal_emit (self, signals [signal_request_failed], 0, tmperr);
+                  g_signal_emit (self, signals [signal_disconnected], 0);
                   return (g_error_free (tmperr), G_SOURCE_REMOVE);
                 }
             }
@@ -305,8 +308,8 @@ static gboolean input_source (GSocket* socket, GIOCondition condition, WebConnec
 
           if ((status = input_io_read (& self->io, G_POLLABLE_INPUT_STREAM (self->input_stream), &tmperr)), G_UNLIKELY (tmperr != NULL))
             {
-              g_signal_emit (self, signals [signal_request_started], 0, NULL);
               g_signal_emit (self, signals [signal_request_failed], 0, tmperr);
+              g_signal_emit (self, signals [signal_disconnected], 0);
               return (g_error_free (tmperr), G_SOURCE_REMOVE);
             }
           else
@@ -318,12 +321,12 @@ static gboolean input_source (GSocket* socket, GIOCondition condition, WebConnec
                     return G_SOURCE_REMOVE;
                   case G_IO_STATUS_NORMAL:
                     {
-                      gchar** frame;
+                      WebRequest* request;
 
-                      while ((frame = g_queue_pop_head (& self->io.frames)) != NULL)
+                      while ((request = g_queue_pop_head (& self->io.frames)) != NULL)
                         {
-                          g_print ("FRAME\n");
-                          g_strfreev (frame);
+                          g_signal_emit (self, signals [signal_request_started], 0, request);
+                          g_object_unref (request);
                         }
                       break;
                     }

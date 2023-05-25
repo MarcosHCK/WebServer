@@ -29,6 +29,10 @@ noinst_HEADERS=\
 	webendpoint.h \
 	webhttpversion.h \
 	weblistenoptions.h \
+	webmessage.h \
+	webmessagefields.h \
+	webmessagemethods.h \
+	webrequest.h \
 	webserver.h
 
 #
@@ -42,6 +46,8 @@ webserver_SOURCES=\
 	webendpoint.c \
 	webhttpversion.c \
 	weblistenoptions.c \
+	webmessage.c \
+	webrequest.c \
 	webserver.c
 webserver_CFLAGS=-flto \
 	-DG_LOG_DOMAIN=\"WebServer\" \
@@ -49,3 +55,13 @@ webserver_CFLAGS=-flto \
 	$(GIO_CFLAGS)
 webserver_LDFLAGS=-flto
 webserver_LDADD=$(GIO_LIBS)
+
+#
+# Extensions
+# - .stringlist -> .c
+#
+
+SUFFIXES=.stringlist .c
+
+.stringlist.c:
+	$(GPERF) --output-file $@ $<

@@ -16,6 +16,7 @@
  */
 #include <config.h>
 #include <gio/gio.h>
+#include <webmessage.h>
 #include <webserver.h>
 
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))

@@ -14,31 +14,16 @@
  * You should have received a copy of the GNU General Public License
  * along with WebServer. If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef __WEB_HTTP_VERSION__
-#define __WEB_HTTP_VERSION__ 1
-#include <glib-object.h>
+#ifndef __WEB_MESSAGE_FIELDS__
+#define __WEB_MESSAGE_FIELDS__ 1
 
-#define WEB_TYPE_HTTP_VERSION (web_http_version_get_type ())
+#define WEB_MESSAGE_FIELD_ACCEPT ("accept")
+#define WEB_MESSAGE_FIELD_ACCEPT_ENCODING ("accept-encoding")
+#define WEB_MESSAGE_FIELD_ACCEPT_LANGUAGE ("accept-language")
+#define WEB_MESSAGE_FIELD_CONNECTION ("connection")
+#define WEB_MESSAGE_FIELD_CONTENT_ENCODING ("content-encoding")
+#define WEB_MESSAGE_FIELD_CONTENT_LENGTH ("content-length")
+#define WEB_MESSAGE_FIELD_HOST ("host")
+#define WEB_MESSAGE_FIELD_USER_AGENT ("user-agent")
 
-#if __cplusplus
-extern "C" {
-#endif // __cplusplus
-
-  typedef enum
-  {
-    WEB_HTTP_VERSION_NONE,
-    WEB_HTTP_VERSION_0_9,
-    WEB_HTTP_VERSION_1_0,
-    WEB_HTTP_VERSION_1_1,
-    WEB_HTTP_VERSION_2_0,
-  } WebHttpVersion;
-
-  G_GNUC_INTERNAL GType web_http_version_get_type (void) G_GNUC_CONST;
-  G_GNUC_INTERNAL WebHttpVersion web_http_version_from_bits (guint major, guint minor);
-  G_GNUC_INTERNAL const gchar* web_http_version_to_string (WebHttpVersion http_version);
-
-#if __cplusplus
-}
-#endif // __cplusplus
-
-#endif // __WEB_HTTP_VERSION__
+#endif // __WEB_MESSAGE_FIELDS__

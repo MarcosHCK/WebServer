@@ -14,31 +14,11 @@
  * You should have received a copy of the GNU General Public License
  * along with WebServer. If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef __WEB_HTTP_VERSION__
-#define __WEB_HTTP_VERSION__ 1
-#include <glib-object.h>
+#ifndef __WEB_MESSAGE_METHODS__
+#define __WEB_MESSAGE_METHODS__ 1
 
-#define WEB_TYPE_HTTP_VERSION (web_http_version_get_type ())
+#define WEB_MESSAGE_METHOD_GET ("get")
+#define WEB_MESSAGE_METHOD_HEAD ("head")
+#define WEB_MESSAGE_METHOD_POST ("post")
 
-#if __cplusplus
-extern "C" {
-#endif // __cplusplus
-
-  typedef enum
-  {
-    WEB_HTTP_VERSION_NONE,
-    WEB_HTTP_VERSION_0_9,
-    WEB_HTTP_VERSION_1_0,
-    WEB_HTTP_VERSION_1_1,
-    WEB_HTTP_VERSION_2_0,
-  } WebHttpVersion;
-
-  G_GNUC_INTERNAL GType web_http_version_get_type (void) G_GNUC_CONST;
-  G_GNUC_INTERNAL WebHttpVersion web_http_version_from_bits (guint major, guint minor);
-  G_GNUC_INTERNAL const gchar* web_http_version_to_string (WebHttpVersion http_version);
-
-#if __cplusplus
-}
-#endif // __cplusplus
-
-#endif // __WEB_HTTP_VERSION__
+#endif // __WEB_MESSAGE_METHODS__
