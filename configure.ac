@@ -150,6 +150,7 @@ PKG_CHECK_MODULES([GOBJECT], [gobject-2.0])
 
 AC_FUNC_REALLOC
 AC_CHECK_FUNCS([memcpy])
+AC_CHECK_FUNCS([memmove])
 AC_CHECK_FUNCS([memset])
 
 #

@@ -118,14 +118,15 @@ WebServer* web_server_new (WebHttpVersion http_version)
   return g_object_new (WEB_TYPE_SERVER, "http-version", http_version, NULL);
 }
 
-static gboolean on_client_disconnected (WebServer* self)
+static gboolean on_client_disconnected (WebServer* self, WebConnection* web_connection)
 {
-  return TRUE;
+  g_print ("disconnected\n");
+return (g_queue_remove (& self->clients, web_connection), TRUE);
 }
 
 static gboolean on_client_request_started (WebServer* self)
 {
-  return TRUE;
+return TRUE;
 }
 
 static gboolean on_new_connection (WebServer* self, GSocket* client_socket)
@@ -136,6 +137,7 @@ static gboolean on_new_connection (WebServer* self, GSocket* client_socket)
   g_signal_connect_swapped (web_connection, "disconnected", G_CALLBACK (on_client_disconnected), self);
   g_signal_connect_swapped (web_connection, "request-started", G_CALLBACK (on_client_request_started), self);
   web_connection_accepted (web_connection);
+  g_print ("connected\n");
 return (g_object_unref (web_connection), TRUE);
 }
 
