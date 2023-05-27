@@ -28,7 +28,8 @@ extern "C" {
 #endif // __cplusplus
 
   G_GNUC_INTERNAL GType web_endpoint_get_type (void) G_GNUC_CONST;
-  G_GNUC_INTERNAL WebEndpoint* web_endpoint_new (GSocket* socket, GError** error);
+  G_GNUC_INTERNAL WebEndpoint* web_endpoint_new (GSocket* socket, gboolean is_https, GError** error);
+  G_GNUC_INTERNAL gboolean web_endpoint_get_is_https (WebEndpoint* web_endpoint);
   G_GNUC_INTERNAL GSocket* web_endpoint_get_socket (WebEndpoint* web_endpoint);
 
 #if __cplusplus

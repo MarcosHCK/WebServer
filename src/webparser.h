@@ -19,7 +19,6 @@
 #include <glib.h>
 
 typedef struct _WebParser WebParser;
-typedef struct _WebParserPatterns WebParserPatterns;
 typedef struct _WebParserField WebParserField;
 #define WEB_PARSER_ERROR (web_parser_error_quark ())
 
@@ -56,10 +55,7 @@ extern "C" {
 
   G_GNUC_INTERNAL GQuark web_parser_error_quark (void) G_GNUC_CONST;
   G_GNUC_INTERNAL void web_parser_clear (WebParser* parser);
-  G_GNUC_INTERNAL WebParserPatterns* web_parser_patterns_new ();
-  G_GNUC_INTERNAL WebParserPatterns* web_parser_patterns_ref (WebParserPatterns* patterns);
-  G_GNUC_INTERNAL void web_parser_patterns_unref (WebParserPatterns* patterns);
-  G_GNUC_INTERNAL void web_parser_feed (WebParser* parser, WebParserPatterns* patterns, const gchar* line, gsize length, GError** error);
+  G_GNUC_INTERNAL void web_parser_feed (WebParser* parser, const gchar* line, gsize length, GError** error);
   G_GNUC_INTERNAL void web_parser_field_set_name (WebParserField* self, const gchar* name, gsize length);
   G_GNUC_INTERNAL void web_parser_field_add_value (WebParserField* self, const gchar* value, gsize length);
   G_GNUC_INTERNAL void web_parser_field_free (WebParserField* self);

@@ -71,7 +71,7 @@ static void on_open (WebServer* web_server, GFile** files, gint n_files)
   _g_object_unref0 (subst);
 }
 
-static void on_server_error (WebServer* web_server, GError* tmperr)
+static void on_got_failure (WebServer* web_server, GError* tmperr)
 {
   const guint code = tmperr->code;
   const gchar* domain = g_quark_to_string (tmperr->domain);
@@ -80,7 +80,7 @@ static void on_server_error (WebServer* web_server, GError* tmperr)
   g_warning ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
 }
 
-static void on_request_started (WebServer* web_server, WebMessage* web_message)
+static void on_got_request (WebServer* web_server, WebMessage* web_message)
 {
   GHashTableIter iter;
   gchar *key, *value;
@@ -111,9 +111,8 @@ int main (int argc, gchar* argv [])
   web_server = web_server_new ();
 
   g_application_hold (application);
-  g_signal_connect (web_server, "listen-error", G_CALLBACK (on_server_error), NULL);
-  g_signal_connect (web_server, "request-error", G_CALLBACK (on_server_error), NULL);
-  g_signal_connect (web_server, "request-started", G_CALLBACK (on_request_started), NULL);
+  g_signal_connect (web_server, "got-failure", G_CALLBACK (on_got_failure), NULL);
+  g_signal_connect (web_server, "got-request", G_CALLBACK (on_got_request), NULL);
   g_signal_connect_data (application, "activate", G_CALLBACK (on_activate), g_object_ref (web_server), notify, flags);
   g_signal_connect_data (application, "open", G_CALLBACK (on_open), g_object_ref (web_server), notify, flags);
   g_object_unref (web_server);

@@ -32,6 +32,7 @@ struct _WebEndpoint
   GObject parent;
 
   /* private */
+  guint is_https : 1;
   GSocket* socket;
   GSource* source;
 };
@@ -44,6 +45,7 @@ struct _WebEndpointClass
 enum
 {
   prop_0,
+  prop_is_https,
   prop_socket,
   prop_number,
 };
@@ -72,6 +74,8 @@ static gboolean accept_source (GSocket* socket, GIOCondition condition, WebEndpo
         {
           GError* tmperr = NULL;
 
+          if (condition & (G_IO_HUP))
+            return G_SOURCE_REMOVE;
           if ((g_socket_condition_wait (socket, G_IO_ERR | G_IO_HUP, NULL, &tmperr)), G_UNLIKELY (tmperr == NULL))
             g_error (_("Socket error reported but no error returned"));
           else
@@ -96,6 +100,7 @@ static gboolean accept_source (GSocket* socket, GIOCondition condition, WebEndpo
 
           if ((g_signal_emit (self, signals [signal_new_connection], 0, client_socket, &handled)), !handled)
             g_socket_close (client_socket, NULL);
+            g_object_unref (client_socket);
         }
     }
 return G_SOURCE_CONTINUE;
@@ -141,6 +146,9 @@ static void web_endpoint_class_get_property (GObject* pself, guint property_id, 
 
   switch (property_id)
     {
+      case prop_is_https:
+        g_value_set_boolean (value, web_endpoint_get_is_https (self));
+        break;
       case prop_socket:
         g_value_set_object (value, web_endpoint_get_socket (self));
         break;
@@ -157,6 +165,9 @@ static void web_endpoint_class_set_property (GObject* pself, guint property_id, 
 
   switch (property_id)
     {
+      case prop_is_https:
+        self->is_https = g_value_get_boolean (value);
+        break;
       case prop_socket:
         g_set_object (& self->socket, g_value_get_object (value));
         break;
@@ -182,6 +193,7 @@ static void web_endpoint_class_init (WebEndpointClass* klass)
   const GSignalCMarshaller marshaller1 = web_cclosure_marshal_VOID__BOXED;
   const GSignalCMarshaller marshaller2 = web_cclosure_marshal_BOOLEAN__OBJECT;
 
+  properties [prop_is_https] = g_param_spec_boolean ("is-https", "is-https", "is-https", 0, flags1);
   properties [prop_socket] = g_param_spec_object ("socket", "socket", "socket", G_TYPE_SOCKET, flags1);
   g_object_class_install_properties (G_OBJECT_CLASS (klass), prop_number, properties);
   signals [signal_failed_connection] = g_signal_new ("failed-connection", gtype, flags2, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);
@@ -192,7 +204,7 @@ static void web_endpoint_init (WebEndpoint* self)
 {
 }
 
-WebEndpoint* web_endpoint_new (GSocket* socket, GError** error)
+WebEndpoint* web_endpoint_new (GSocket* socket, gboolean is_https, GError** error)
 {
   g_return_val_if_fail (G_IS_SOCKET (socket), NULL);
   g_return_val_if_fail (error == NULL || *error == NULL, NULL);
@@ -210,7 +222,13 @@ WebEndpoint* web_endpoint_new (GSocket* socket, GError** error)
       g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_FAILED, _("Can't import unconnected socket"));
       return NULL;
     }
-return g_object_new (WEB_TYPE_ENDPOINT, "socket", socket, NULL);
+return g_object_new (WEB_TYPE_ENDPOINT, "socket", socket, "is-https", is_https, NULL);
+}
+
+gboolean web_endpoint_get_is_https (WebEndpoint* web_endpoint)
+{
+  g_return_val_if_fail (WEB_IS_ENDPOINT (web_endpoint), FALSE);
+return web_endpoint->is_https;
 }
 
 GSocket* web_endpoint_get_socket (WebEndpoint* web_endpoint)

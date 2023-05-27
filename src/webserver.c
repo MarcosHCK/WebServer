@@ -28,14 +28,17 @@ typedef struct _WebServerClass WebServerClass;
 #define _g_error_free0(var) ((var == NULL) ? NULL : (var = (g_error_free (var), NULL)))
 #define _g_free0(var) ((var == NULL) ? NULL : (var = (g_free (var), NULL)))
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
+typedef struct _WebConnection WebConnection;
+typedef union _SignalData SignalData;
 
 struct _WebServer
 {
   GObject parent;
 
   /* private */
-  GQueue clients;
+  GMainContext* context;
   GQueue listeners;
+  GThreadPool* workers;
 };
 
 struct _WebServerClass
@@ -43,11 +46,21 @@ struct _WebServerClass
   GObjectClass parent;
 };
 
+union _SignalData
+{
+  GValue values [2];
+
+  struct
+  {
+    GValue instance;
+    GValue argument;
+  };
+};
+
 enum
 {
-  signal_listen_error,
-  signal_request_error,
-  signal_request_started,
+  signal_got_failure,
+  signal_got_request,
   signal_number,
 };
 
@@ -57,7 +70,6 @@ static guint signals [signal_number] = {0};
 static void web_server_class_dispose (GObject* pself)
 {
   WebServer* self = (gpointer) pself;
-  g_queue_clear_full (& self->clients, g_object_unref);
   g_queue_clear_full (& self->listeners, g_object_unref);
 G_OBJECT_CLASS (web_server_parent_class)->dispose (pself);
 }
@@ -65,6 +77,8 @@ G_OBJECT_CLASS (web_server_parent_class)->dispose (pself);
 static void web_server_class_finalize (GObject* pself)
 {
   WebServer* self = (gpointer) pself;
+  g_main_context_unref (self->context);
+  g_thread_pool_free (self->workers, TRUE, TRUE);
 G_OBJECT_CLASS (web_server_parent_class)->finalize (pself);
 }
 
@@ -75,19 +89,80 @@ static void web_server_class_init (WebServerClass* klass)
 
   const GType gtype = G_TYPE_FROM_CLASS (klass);
   const GSignalFlags flags1 = G_SIGNAL_RUN_LAST;
-  const GSignalFlags flags2 = G_SIGNAL_RUN_FIRST;
+  const GSignalFlags flags2 = G_SIGNAL_RUN_LAST;
   const GSignalCMarshaller marshaller1 = web_cclosure_marshal_VOID__BOXED;
   const GSignalCMarshaller marshaller2 = web_cclosure_marshal_VOID__OBJECT;
 
-  signals [signal_listen_error] = g_signal_new ("listen-error", gtype, flags1, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);
-  signals [signal_request_error] = g_signal_new ("request-error", gtype, flags1, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);
-  signals [signal_request_started] = g_signal_new ("request-started", gtype, flags2, 0, NULL, NULL, marshaller2, G_TYPE_NONE, 1, WEB_TYPE_MESSAGE);
+  signals [signal_got_failure] = g_signal_new ("got-failure", gtype, flags1, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);
+  signals [signal_got_request] = g_signal_new ("got-request", gtype, flags2, 0, NULL, NULL, marshaller2, G_TYPE_NONE, 1, WEB_TYPE_MESSAGE);
+}
+
+static gboolean do_got_failure (gpointer values)
+{
+  return (g_signal_emitv (values, signals [signal_got_failure], 0, NULL), G_SOURCE_REMOVE);
+}
+
+static gboolean do_got_request (gpointer values)
+{
+  return (g_signal_emitv (values, signals [signal_got_request], 0, NULL), G_SOURCE_REMOVE);
+}
+
+static void signal_data_unref (gpointer ptr)
+{
+  g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, sizeof (GValue) * 0));
+  g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, sizeof (GValue) * 1));
+  g_slice_free (SignalData, ptr);
+}
+
+static void process (WebConnection* web_connection, WebServer* self)
+{
+  WebMessage* web_message = NULL;
+  GError* tmperr = NULL;
+
+  if ((web_message = web_connection_step (web_connection, &tmperr)), G_UNLIKELY (tmperr != NULL))
+    {
+      if (g_error_matches (tmperr, G_IO_ERROR, G_IO_ERROR_CONNECTION_CLOSED))
+        g_error_free (tmperr);
+      else
+        {
+          SignalData* data = g_slice_new0 (SignalData);
+
+          g_value_init_from_instance (& data->instance, self);
+          g_value_init (& data->argument, G_TYPE_ERROR);
+          g_value_take_boxed (& data->argument, tmperr);
+
+          g_main_context_invoke_full (self->context, G_PRIORITY_HIGH_IDLE, G_SOURCE_FUNC (do_got_failure), data, signal_data_unref);
+        }
+
+      g_object_unref (web_connection);
+    }
+  else
+    {
+      if (web_message != NULL)
+        {
+          SignalData* data = g_slice_new0 (SignalData);
+
+          g_value_init_from_instance (& data->instance, self);
+          g_value_init_from_instance (& data->argument, web_message);
+
+          g_main_context_invoke_full (self->context, G_PRIORITY_HIGH_IDLE, G_SOURCE_FUNC (do_got_request), data, signal_data_unref);
+          g_object_unref (web_message);
+        }
+
+      g_thread_pool_push (self->workers, web_connection, NULL);
+    }
 }
 
 static void web_server_init (WebServer* self)
 {
-  g_queue_init (& self->clients);
   g_queue_init (& self->listeners);
+
+  const GFunc func1 = (GFunc) process;
+  const GDestroyNotify notify = (GDestroyNotify) g_object_unref;
+  const guint max_threads = g_get_num_processors ();
+
+  self->context = g_main_context_ref_thread_default ();
+  self->workers = g_thread_pool_new_full (func1, self, notify, max_threads, FALSE, NULL);
 }
 
 WebServer* web_server_new ()
@@ -95,36 +170,16 @@ WebServer* web_server_new ()
   return g_object_new (WEB_TYPE_SERVER, NULL);
 }
 
-static void on_client_disconnected (WebServer* self, WebConnection* web_connection)
+static gboolean on_new_connection (WebServer* self, GSocket* client_socket, WebEndpoint* web_endpoint)
 {
-  g_queue_remove (& self->clients, web_connection);
+  gboolean is_https = web_endpoint_get_is_https (web_endpoint);
+  WebConnection* web_connection = web_connection_new (client_socket, is_https);
+return (g_thread_pool_push (self->workers, web_connection, NULL), TRUE);
 }
 
-static void on_client_request_failed (WebServer* self, GError* tmperr, WebConnection* web_connection)
+static gboolean on_failed_connection (WebServer* self, GError* tmperr)
 {
-  g_signal_emit (self, signals [signal_request_error], 0, tmperr);
-}
-
-static void on_client_request_started (WebServer* self, WebMessage* web_message)
-{
-  g_signal_emit (self, signals [signal_request_started], 0, web_message);
-}
-
-static void on_failed_connection (WebServer* self, GError* tmperr)
-{
-  g_signal_emit (self, signals [signal_listen_error], 0, tmperr);
-}
-
-static gboolean on_new_connection (WebServer* self, GSocket* client_socket)
-{
-  WebConnection* web_connection = web_connection_new (client_socket, FALSE);
-
-  g_queue_push_head (& self->clients, g_object_ref (web_connection));
-  g_signal_connect_swapped (web_connection, "disconnected", G_CALLBACK (on_client_disconnected), self);
-  g_signal_connect_swapped (web_connection, "request-failed", G_CALLBACK (on_client_request_failed), self);
-  g_signal_connect_swapped (web_connection, "request-started", G_CALLBACK (on_client_request_started), self);
-  web_connection_accepted (web_connection);
-return (g_object_unref (web_connection), TRUE);
+  return (g_signal_emit (self, signals [signal_got_failure], 0, tmperr), TRUE);
 }
 
 static GSocket* listen_internal (WebServer* self, GSocketAddress* socket_address, WebListenOptions options, GError** error)
@@ -133,6 +188,7 @@ static GSocket* listen_internal (WebServer* self, GSocketAddress* socket_address
   GSocket* socket = NULL;
   GError* tmperr = NULL;
 
+  const gboolean is_https = ! ((options & WEB_LISTEN_OPTION_HTTPS) == 0);
   const GSocketFamily socket_family = g_socket_address_get_family (socket_address);
   const GSocketType socket_type = G_SOCKET_TYPE_STREAM;
   const GSocketProtocol socket_proto = G_SOCKET_PROTOCOL_TCP;
@@ -161,7 +217,7 @@ static GSocket* listen_internal (WebServer* self, GSocketAddress* socket_address
       return NULL;
     }
 
-  if ((web_endpoint = web_endpoint_new (socket, &tmperr), g_object_unref (socket)), G_UNLIKELY (tmperr != NULL))
+  if ((web_endpoint = web_endpoint_new (socket, is_https, &tmperr), g_object_unref (socket)), G_UNLIKELY (tmperr != NULL))
     {
       _g_object_unref0 (web_endpoint);
       g_propagate_error (error, tmperr);
@@ -169,6 +225,7 @@ static GSocket* listen_internal (WebServer* self, GSocketAddress* socket_address
     }
 
   g_signal_connect_swapped (web_endpoint, "new-connection", G_CALLBACK (on_new_connection), self);
+  g_signal_connect_swapped (web_endpoint, "failed-connection", G_CALLBACK (on_failed_connection), self);
   g_queue_push_head (& self->listeners, web_endpoint);
 return (web_endpoint_get_socket (web_endpoint));
 }

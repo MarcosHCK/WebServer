@@ -20,21 +20,23 @@
 #include <webmessagemethods.h>
 #include <webparser.h>
 
+typedef struct _Patterns Patterns;
 #define _g_free0(var) ((var == NULL) ? NULL : (var = (g_free (var), NULL)))
 #define _g_match_info_free0(var) ((var == NULL) ? NULL : (var = (g_match_info_free (var), NULL)))
 #define _g_uri_unref0(var) ((var == NULL) ? NULL : (var = (g_uri_unref (var), NULL)))
 #define _web_parser_patterns_unref0(var) ((var == NULL) ? NULL : (var = (web_parser_patterns_unref (var), NULL)))
-
 #define web_parser_field_new() (g_slice_new0 (WebParserField))
 
-static void parse_header_line (WebParser* self, WebParserPatterns* patterns, const gchar* line, gsize length, GError** error);
+#define PATTERNS_INIT Patterns* patterns = patterns_peek ()
+
+static void parse_header_line (WebParser* self, const gchar* line, gsize length, GError** error);
 static guint parse_http_version_bit (const gchar* line, gsize length, gsize offset, GError** error);
 static const gchar* parse_method (const gchar* line, gsize length, gsize offset, GError** error);
-static void parse_request_line (WebParser* self, WebParserPatterns* patterns, const gchar* line, gsize length, GError** error);
-static void parse_request_line_full (WebParser* self, WebParserPatterns* patterns, GMatchInfo* info, const gchar* line, gsize length, GError** error);
-static void parse_request_line_simple (WebParser* self, WebParserPatterns* patterns, GMatchInfo* info, const gchar* line, gsize length, GError** error);
+static void parse_request_line (WebParser* self, const gchar* line, gsize length, GError** error);
+static void parse_request_line_full (WebParser* self, GMatchInfo* info, const gchar* line, gsize length, GError** error);
+static void parse_request_line_simple (WebParser* self, GMatchInfo* info, const gchar* line, gsize length, GError** error);
 
-struct _WebParserPatterns
+struct _Patterns
 {
   guint ref_count;
   GUri* base_uri;
@@ -46,12 +48,93 @@ struct _WebParserPatterns
 
 G_DEFINE_QUARK (web-parser-error-quark, web_parser_error);
 
-static void parse_header_line (WebParser* self, WebParserPatterns* patterns, const gchar* line, gsize length, GError** error)
+static GUri* _web_uri_parse (const gchar* uri_string, GUriFlags uri_flags)
+{
+#if DEVELOPER == 1
+  GError* tmperr = NULL;
+  GUri* uri = NULL;
+
+  if ((uri = g_uri_parse (uri_string, uri_flags, &tmperr)), G_UNLIKELY (tmperr == NULL))
+      return uri;
+    else
+      {
+        const gchar* domain = g_quark_to_string (tmperr->domain);
+        const gchar* message = tmperr->message;
+        const guint code = tmperr->code;
+
+        g_error ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
+        g_assert_not_reached ();
+      }
+#else // DEVELOPER
+  return g_uri_parse (uri_string, uri_flags, NULL);
+#endif // DEVELOPER
+}
+
+static GRegex* _web_regex_new (const gchar* pattern, GRegexCompileFlags compile_flags, GRegexMatchFlags match_flags)
+{
+#if DEVELOPER == 1
+  GError* tmperr = NULL;
+  GRegex* regex = NULL;
+
+  if ((regex = g_regex_new (pattern, compile_flags, match_flags, &tmperr)), G_UNLIKELY (tmperr == NULL))
+      return regex;
+    else
+      {
+        const gchar* domain = g_quark_to_string (tmperr->domain);
+        const gchar* message = tmperr->message;
+        const guint code = tmperr->code;
+
+        g_error ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
+        g_assert_not_reached ();
+      }
+#else // DEVELOPER
+  return g_regex_new (pattern, compile_flags, match_flags, NULL);
+#endif // DEVELOPER
+}
+
+static Patterns* patterns_peek ()
+{
+  static gsize __value__ = 0;
+
+  if (g_once_init_enter (&__value__))
+    {
+      Patterns* self;
+
+      /* components */
+      #define CTL "\\x{0}-\\x{1f}"
+      #define HEX "[:xdigit:]"
+      #define CR "\\x{0d}"
+      #define LF "\\x{0a}"
+      #define CRLF CR LF
+      #define SP "\\x{20}"
+      #define HT "\\x{09}"
+      #define SPECIALS "\\(\\)<>@,;:\\\\\"/\\[\\]\\?={}\\x{0a}\\x{0d}"
+
+      /* entities */
+      #define TEXT "[^" CTL "\\x{0a}\\x{0d}]"
+      #define TOKEN "[^" CTL SPECIALS "]"
+
+      self = g_slice_new (Patterns);
+      self->base_uri = _web_uri_parse ("http://localhost/", G_URI_FLAGS_NON_DNS);
+      self->folded_field = _web_regex_new ("^[" SP HT "](.+)$", G_REGEX_OPTIMIZE | G_REGEX_RAW, 0);
+      self->full_request_line = _web_regex_new ("^(" TOKEN "+)\\s(.+?)\\sHTTP/([0-9]+)\\.([0-9]+)$", G_REGEX_OPTIMIZE | G_REGEX_RAW, 0);
+      self->simple_field = _web_regex_new ("^(" TOKEN "+):\\s(.+)$", G_REGEX_OPTIMIZE | G_REGEX_RAW, 0);
+      self->simple_request_line = _web_regex_new ("^(" TOKEN "+)\\s(.+)$", G_REGEX_OPTIMIZE | G_REGEX_RAW, 0);
+
+      g_once_init_leave (& __value__, GPOINTER_TO_SIZE (self));
+      G_STATIC_ASSERT (sizeof (__value__) == GLIB_SIZEOF_VOID_P);
+    }
+return GSIZE_TO_POINTER (__value__);
+}
+
+static void parse_header_line (WebParser* self, const gchar* line, gsize length, GError** error)
 {
   gboolean matches;
   GMatchInfo* info;
   GError* tmperr = NULL;
   WebParserField* field;
+
+  PATTERNS_INIT;
 
   gint name_start, name_end;
   gint value_start, value_end;
@@ -151,11 +234,13 @@ static const gchar* parse_method (const gchar* line, gsize length, gsize offset,
 return (NULL);
 }
 
-static void parse_request_line (WebParser* self, WebParserPatterns* patterns, const gchar* line, gsize length, GError** error)
+static void parse_request_line (WebParser* self, const gchar* line, gsize length, GError** error)
 {
   gboolean matches;
   GMatchInfo* info;
   GError* tmperr = NULL;
+
+  PATTERNS_INIT;
 
   if ((matches = g_regex_match_full (patterns->full_request_line, line, length, 0, 0, &info, &tmperr)), G_UNLIKELY (tmperr != NULL))
     {
@@ -164,7 +249,7 @@ static void parse_request_line (WebParser* self, WebParserPatterns* patterns, co
     }
   else if (matches == TRUE)
     {
-      parse_request_line_full (self, patterns, info, line, length, error);
+      parse_request_line_full (self, info, line, length, error);
       _g_match_info_free0 (info);
     }
   else
@@ -181,7 +266,7 @@ static void parse_request_line (WebParser* self, WebParserPatterns* patterns, co
           self->got_simple_request = TRUE;
           self->http_version = WEB_HTTP_VERSION_0_9;
 
-          parse_request_line_simple (self, patterns, info, line, length, error);
+          parse_request_line_simple (self, info, line, length, error);
           _g_match_info_free0 (info);
         }
       else
@@ -192,7 +277,7 @@ static void parse_request_line (WebParser* self, WebParserPatterns* patterns, co
     }
 }
 
-static void parse_request_line_full (WebParser* self, WebParserPatterns* patterns, GMatchInfo* info, const gchar* line, gsize length, GError** error)
+static void parse_request_line_full (WebParser* self, GMatchInfo* info, const gchar* line, gsize length, GError** error)
 {
   GError* tmperr = NULL;
   WebHttpVersion version = 0;
@@ -203,7 +288,7 @@ static void parse_request_line_full (WebParser* self, WebParserPatterns* pattern
   g_match_info_fetch_pos (info, 3, &major_start, &major_end);
   g_match_info_fetch_pos (info, 4, &minor_start, &minor_end);
 
-  if ((parse_request_line_simple (self, patterns, info, line, length, &tmperr)), G_UNLIKELY (tmperr != NULL))
+  if ((parse_request_line_simple (self, info, line, length, &tmperr)), G_UNLIKELY (tmperr != NULL))
     g_propagate_error (error, tmperr);
   else if ((major = parse_http_version_bit (line, major_end, major_start, &tmperr)), G_UNLIKELY (tmperr != NULL))
     g_propagate_error (error, tmperr);
@@ -215,11 +300,13 @@ static void parse_request_line_full (WebParser* self, WebParserPatterns* pattern
     self->http_version = version;
 }
 
-static void parse_request_line_simple (WebParser* self, WebParserPatterns* patterns, GMatchInfo* info, const gchar* line, gsize length, GError** error)
+static void parse_request_line_simple (WebParser* self, GMatchInfo* info, const gchar* line, gsize length, GError** error)
 {
   gchar* path = NULL;
   GError* tmperr = NULL;
   GUri* uri = NULL;
+
+  PATTERNS_INIT;
 
   const gchar* method;
   gint method_start, method_end;
@@ -252,98 +339,7 @@ void web_parser_clear (WebParser* self)
   _g_uri_unref0 (self->uri);
 }
 
-static GUri* _web_uri_parse (const gchar* uri_string, GUriFlags uri_flags)
-{
-#if DEVELOPER == 1
-  GError* tmperr = NULL;
-  GUri* uri = NULL;
-
-  if ((uri = g_uri_parse (uri_string, uri_flags, &tmperr)), G_UNLIKELY (tmperr == NULL))
-      return uri;
-    else
-      {
-        const gchar* domain = g_quark_to_string (tmperr->domain);
-        const gchar* message = tmperr->message;
-        const guint code = tmperr->code;
-
-        g_error ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
-        g_assert_not_reached ();
-      }
-#else // DEVELOPER
-  return g_uri_parse (uri_string, uri_flags, NULL);
-#endif // DEVELOPER
-}
-
-static GRegex* _web_regex_new (const gchar* pattern, GRegexCompileFlags compile_flags, GRegexMatchFlags match_flags)
-{
-#if DEVELOPER == 1
-  GError* tmperr = NULL;
-  GRegex* regex = NULL;
-
-  if ((regex = g_regex_new (pattern, compile_flags, match_flags, &tmperr)), G_UNLIKELY (tmperr == NULL))
-      return regex;
-    else
-      {
-        const gchar* domain = g_quark_to_string (tmperr->domain);
-        const gchar* message = tmperr->message;
-        const guint code = tmperr->code;
-
-        g_error ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
-        g_assert_not_reached ();
-      }
-#else // DEVELOPER
-  return g_regex_new (pattern, compile_flags, match_flags, NULL);
-#endif // DEVELOPER
-}
-
-WebParserPatterns* web_parser_patterns_new ()
-{
-  WebParserPatterns* self;
-
-  /* components */
-  #define CTL "\\x{0}-\\x{1f}"
-  #define HEX "[:xdigit:]"
-  #define CR "\\x{0d}"
-  #define LF "\\x{0a}"
-  #define CRLF CR LF
-  #define SP "\\x{20}"
-  #define HT "\\x{09}"
-  #define SPECIALS "\\(\\)<>@,;:\\\\\"/\\[\\]\\?={}\\x{0a}\\x{0d}"
-
-  /* entities */
-  #define TEXT "[^" CTL "\\x{0a}\\x{0d}]"
-  #define TOKEN "[^" CTL SPECIALS "]"
-
-  self = g_slice_new (WebParserPatterns);
-  self->base_uri = _web_uri_parse ("http://localhost/", G_URI_FLAGS_NON_DNS);
-  self->folded_field = _web_regex_new ("^[" SP HT "](.+)$", G_REGEX_OPTIMIZE | G_REGEX_RAW, 0);
-  self->full_request_line = _web_regex_new ("^(" TOKEN "+)\\s(.+?)\\sHTTP/([0-9]+)\\.([0-9]+)$", G_REGEX_OPTIMIZE | G_REGEX_RAW, 0);
-  self->simple_field = _web_regex_new ("^(" TOKEN "+):\\s(.+)$", G_REGEX_OPTIMIZE | G_REGEX_RAW, 0);
-  self->simple_request_line = _web_regex_new ("^(" TOKEN "+)\\s(.+)$", G_REGEX_OPTIMIZE | G_REGEX_RAW, 0);
-return (self);
-}
-
-WebParserPatterns* web_parser_patterns_ref (WebParserPatterns* self)
-{
-  g_return_val_if_fail (self != NULL, NULL);
-return (g_atomic_int_inc (& self->ref_count), self);
-}
-
-void web_parser_patterns_unref (WebParserPatterns* self)
-{
-  g_return_if_fail (self != NULL);
-  if (g_atomic_int_dec_and_test (& self->ref_count))
-    {
-      g_uri_unref (self->base_uri);
-      g_regex_unref (self->folded_field);
-      g_regex_unref (self->full_request_line);
-      g_regex_unref (self->simple_field);
-      g_regex_unref (self->simple_request_line);
-      g_slice_free (WebParserPatterns, self);
-    }
-}
-
-void web_parser_feed (WebParser* self, WebParserPatterns* patterns, const gchar* line, gsize length, GError** error)
+void web_parser_feed (WebParser* self, const gchar* line, gsize length, GError** error)
 {
   g_return_if_fail (self->complete == FALSE);
 
@@ -352,13 +348,13 @@ void web_parser_feed (WebParser* self, WebParserPatterns* patterns, const gchar*
       if (length == 0)
         self->complete = TRUE;
       else
-        parse_header_line (self, patterns, line, length, error);
+        parse_header_line (self, line, length, error);
     }
   else
     {
       GError* tmperr = NULL;
 
-      if ((parse_request_line (self, patterns, line, length, &tmperr)), G_UNLIKELY (tmperr != NULL))
+      if ((parse_request_line (self, line, length, &tmperr)), G_UNLIKELY (tmperr != NULL))
         g_propagate_error (error, tmperr);
       else
         {
