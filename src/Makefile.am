@@ -33,7 +33,10 @@ noinst_HEADERS=\
 	webmessagefields.h \
 	webmessagemethods.h \
 	webparser.h \
-	webserver.h
+	webrequest.h \
+	webresponse.h \
+	webserver.h \
+	webstatuscode.h
 
 #
 # Binaries and libraries
@@ -49,7 +52,10 @@ webserver_SOURCES=\
 	weblistenoptions.c \
 	webmessage.c \
 	webparser.c \
-	webserver.c
+	webrequest.c \
+	webresponse.c \
+	webserver.c \
+	webstatuscode.c
 webserver_CFLAGS=-flto \
 	-DG_LOG_DOMAIN=\"WebServer\" \
 	-DG_LOG_USE_STRUCTURED=1 \
@@ -57,7 +63,9 @@ webserver_CFLAGS=-flto \
 webserver_LDFLAGS=-flto
 webserver_LDADD=$(GIO_LIBS)
 
+webconnection.c: marshals.h
 webendpoint.c: marshals.h
+webserver.c: marshals.h
 
 #
 # Extensions

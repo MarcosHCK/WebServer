@@ -17,7 +17,6 @@
 #ifndef __WEB_CONNECTION__
 #define __WEB_CONNECTION__ 1
 #include <gio/gio.h>
-#include <webmessage.h>
 
 #define WEB_TYPE_CONNECTION (web_connection_get_type ())
 #define WEB_CONNECTION(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), WEB_TYPE_CONNECTION, WebConnection))
@@ -35,7 +34,6 @@ extern "C" {
   G_GNUC_INTERNAL GSocket* web_connection_get_socket (WebConnection* web_connection);
   G_GNUC_INTERNAL void web_connection_stall_read (WebConnection* web_connection, GError** error);
   G_GNUC_INTERNAL void web_connection_stall_write (WebConnection* web_connection, GError** error);
-  G_GNUC_INTERNAL void Web_connection_send (WebConnection* web_connection, WebMessage* web_message, GError** error);
 
 #if __cplusplus
 }

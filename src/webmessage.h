@@ -16,7 +16,7 @@
  */
 #ifndef __WEB_MESSAGE__
 #define __WEB_MESSAGE__ 1
-#include <glib-object.h>
+#include <gio/gio.h>
 #include <webhttpversion.h>
 
 #define WEB_TYPE_MESSAGE (web_message_get_type ())
@@ -46,18 +46,17 @@ extern "C" {
 
   G_GNUC_INTERNAL GType web_message_get_type (void) G_GNUC_CONST;
   G_GNUC_INTERNAL WebMessage* web_message_new ();
+  G_GNUC_INTERNAL void web_message_delete_field (WebMessage* web_message, const gchar* key);
   G_GNUC_INTERNAL const gchar* web_message_get_field (WebMessage* web_message, const gchar* key);
   G_GNUC_INTERNAL void web_message_get_field_iter (WebMessage* web_message, GHashTableIter* iter);
   G_GNUC_INTERNAL WebHttpVersion web_message_get_http_version (WebMessage* web_message);
-  G_GNUC_INTERNAL const gchar* web_message_get_method (WebMessage* web_message);
-  G_GNUC_INTERNAL GUri* web_message_get_uri (WebMessage* web_message);
   G_GNUC_INTERNAL void web_message_insert_field (WebMessage* web_message, const gchar* key, const gchar* value);
   G_GNUC_INTERNAL void web_message_insert_field_take (WebMessage* web_message, gchar* key, gchar* value);
-  G_GNUC_INTERNAL void web_message_delete_field (WebMessage* web_message, const gchar* key);
-  G_GNUC_INTERNAL void web_message_set_body (WebMessage* web_message, GBytes* bytes);
+  G_GNUC_INTERNAL void web_message_set_body (WebMessage* web_message, const gchar* contents, gsize length);
+  G_GNUC_INTERNAL void web_message_set_body_bytes (WebMessage* web_message, GBytes* bytes);
+  G_GNUC_INTERNAL void web_message_set_body_stream (WebMessage* web_message, GInputStream* stream);
+  G_GNUC_INTERNAL void web_message_set_body_take (WebMessage* web_message, gchar* contents, gsize length);
   G_GNUC_INTERNAL void web_message_set_http_version (WebMessage* web_message, WebHttpVersion http_version);
-  G_GNUC_INTERNAL void web_message_set_method (WebMessage* web_message, const gchar* method);
-  G_GNUC_INTERNAL void web_message_set_uri (WebMessage* web_message, GUri* uri);
 
 #if __cplusplus
 }

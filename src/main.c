@@ -16,6 +16,7 @@
  */
 #include <config.h>
 #include <webmessage.h>
+#include <webrequest.h>
 #include <webserver.h>
 
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
@@ -85,9 +86,9 @@ static void on_request_started (WebServer* web_server, WebMessage* web_message)
   gchar *key, *value;
 
   g_printerr ("frame {\n");
-  g_printerr ("  method: '%s';\n", web_message_get_method (web_message));
-  g_printerr ("  path: '%s';\n", g_uri_get_path (web_message_get_uri (web_message)));
-  g_printerr ("  version: '%s';\n", web_http_version_to_string (web_message_get_http_version (web_message)));
+  g_printerr ("  method: '%s';\n", web_request_get_method (WEB_REQUEST (web_message)));
+  g_printerr ("  path: '%s';\n", g_uri_get_path (web_request_get_uri (WEB_REQUEST (web_message))));
+  g_printerr ("  version: '%s';\n", web_http_version_to_string (web_request_get_http_version (WEB_REQUEST (web_message))));
   g_printerr ("  fields {\n");
     web_message_get_field_iter (web_message, &iter);
 

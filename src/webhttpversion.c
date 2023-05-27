@@ -67,6 +67,6 @@ const gchar* web_http_version_to_string (WebHttpVersion http_version)
 {
   GEnumClass* klass = g_type_class_ref (WEB_TYPE_HTTP_VERSION);
   GEnumValue* value = g_enum_get_value (klass, (gint) http_version);
-  gchar* nick = g_intern_string (value->value_nick);
+  const gchar* nick = g_intern_string (value->value_nick);
 return (g_type_class_unref (klass), nick);
 }

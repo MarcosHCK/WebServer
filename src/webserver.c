@@ -15,6 +15,7 @@
  * along with WebServer. If not, see <http://www.gnu.org/licenses/>.
  */
 #include <config.h>
+#include <marshals.h>
 #include <webconnection.h>
 #include <webendpoint.h>
 #include <webmessage.h>
@@ -75,8 +76,8 @@ static void web_server_class_init (WebServerClass* klass)
   const GType gtype = G_TYPE_FROM_CLASS (klass);
   const GSignalFlags flags1 = G_SIGNAL_RUN_LAST;
   const GSignalFlags flags2 = G_SIGNAL_RUN_FIRST;
-  const GSignalCMarshaller marshaller1 = g_cclosure_marshal_VOID__BOXED;
-  const GSignalCMarshaller marshaller2 = g_cclosure_marshal_VOID__OBJECT;
+  const GSignalCMarshaller marshaller1 = web_cclosure_marshal_VOID__BOXED;
+  const GSignalCMarshaller marshaller2 = web_cclosure_marshal_VOID__OBJECT;
 
   signals [signal_listen_error] = g_signal_new ("listen-error", gtype, flags1, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);
   signals [signal_request_error] = g_signal_new ("request-error", gtype, flags1, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);

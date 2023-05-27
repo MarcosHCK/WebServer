@@ -20,34 +20,28 @@
 #define _g_bytes_unref0(var) ((var == NULL) ? NULL : (var = (g_bytes_unref (var), NULL)))
 #define _g_free0(var) ((var == NULL) ? NULL : (var = (g_free (var), NULL)))
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
-#define _g_uri_unref0(var) ((var == NULL) ? NULL : (var = (g_uri_unref (var), NULL)))
 
 struct _WebMessagePrivate
 {
-  GBytes* body;
+  GInputStream* body;
   GHashTable* fields;
-  WebHttpVersion http_version;
-  gchar* method;
-  GUri* uri;
 };
 
 enum
 {
   prop_0,
   prop_body,
-  prop_http_version,
-  prop_method,
-  prop_uri,
   prop_number,
 };
 
-G_DEFINE_TYPE_WITH_PRIVATE (WebMessage, web_message, G_TYPE_OBJECT);
+G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE (WebMessage, web_message, G_TYPE_OBJECT);
 static GParamSpec* properties [prop_number] = {0};
 
 static void web_message_class_dispose (GObject* pself)
 {
   WebMessage* self = (gpointer) pself;
   WebMessagePrivate* priv = self->priv;
+  _g_object_unref0 (priv->body);
   g_hash_table_remove_all (priv->fields);
 G_OBJECT_CLASS (web_message_parent_class)->dispose (pself);
 }
@@ -56,11 +50,7 @@ static void web_message_class_finalize (GObject* pself)
 {
   WebMessage* self = (gpointer) pself;
   WebMessagePrivate* priv = self->priv;
-  guint i;
-
-  _g_bytes_unref0 (priv->body);
   g_hash_table_unref (priv->fields);
-  _g_uri_unref0 (priv->uri);
 G_OBJECT_CLASS (web_message_parent_class)->finalize (pself);
 }
 
@@ -72,16 +62,7 @@ static void web_message_class_get_property (GObject* pself, guint property_id, G
   switch (property_id)
     {
       case prop_body:
-        g_value_set_boxed (value, priv->body);
-        break;
-      case prop_http_version:
-        g_value_set_enum (value, priv->http_version);
-        break;
-      case prop_method:
-        g_value_set_pointer (value, (gpointer) web_message_get_method (self));
-        break;
-      case prop_uri:
-        g_value_set_boxed (value, web_message_get_uri (self));
+        g_value_set_object (value, priv->body);
         break;
 
       default:
@@ -98,16 +79,7 @@ static void web_message_class_set_property (GObject* pself, guint property_id, c
   switch (property_id)
     {
       case prop_body:
-        web_message_set_body (self, g_value_get_boxed (value));
-        break;
-      case prop_http_version:
-        web_message_set_http_version (self, g_value_get_enum (value));
-        break;
-      case prop_method:
-        web_message_set_method (self, g_value_get_pointer (value));
-        break;
-      case prop_uri:
-        web_message_set_uri (self, g_value_get_boxed (value));
+        web_message_set_body_stream (self, g_value_get_object (value));
         break;
 
       default:
@@ -124,9 +96,6 @@ static void web_message_class_init (WebMessageClass* klass)
   G_OBJECT_CLASS (klass)->set_property = web_message_class_set_property;
 
   properties [prop_body] = g_param_spec_boxed ("body", "body", "body", G_TYPE_BYTES, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-  properties [prop_http_version] = g_param_spec_enum ("http-version", "http-version", "http-version", WEB_TYPE_HTTP_VERSION, WEB_HTTP_VERSION_NONE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-  properties [prop_method] = g_param_spec_pointer ("method", "method", "method", G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-  properties [prop_uri] = g_param_spec_boxed ("uri", "uri", "uri", G_TYPE_URI, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
   g_object_class_install_properties (G_OBJECT_CLASS (klass), prop_number, properties);
 }
 
@@ -137,12 +106,6 @@ static void web_message_init (WebMessage* self)
 
   self->priv = web_message_get_instance_private (self);
   self->priv->fields = g_hash_table_new_full (func1, func2, g_free, g_free);
-  self->priv->http_version = WEB_HTTP_VERSION_0_9;
-}
-
-WebMessage* web_message_new ()
-{
-  return g_object_new (WEB_TYPE_MESSAGE, NULL);
 }
 
 const gchar* web_message_get_field (WebMessage* web_message, const gchar* key)
@@ -159,27 +122,6 @@ void web_message_get_field_iter (WebMessage* web_message, GHashTableIter* iter)
   g_return_if_fail (iter != NULL);
   WebMessagePrivate* priv = web_message->priv;
   g_hash_table_iter_init (iter, priv->fields);
-}
-
-WebHttpVersion web_message_get_http_version (WebMessage* web_message)
-{
-  g_return_val_if_fail (WEB_IS_MESSAGE (web_message), 0);
-  WebMessagePrivate* priv = web_message->priv;
-return priv->http_version;
-}
-
-const gchar* web_message_get_method (WebMessage* web_message)
-{
-  g_return_val_if_fail (WEB_IS_MESSAGE (web_message), NULL);
-  WebMessagePrivate* priv = web_message->priv;
-return priv->method;
-}
-
-GUri* web_message_get_uri (WebMessage* web_message)
-{
-  g_return_val_if_fail (WEB_IS_MESSAGE (web_message), NULL);
-  WebMessagePrivate* priv = web_message->priv;
-return priv->uri;
 }
 
 void web_message_delete_field (WebMessage* web_message, const gchar* key)
@@ -206,39 +148,42 @@ void web_message_insert_field_take (WebMessage* web_message, gchar* key, gchar* 
   g_hash_table_insert (priv->fields, key, value);
 }
 
-void web_message_set_body (WebMessage* web_message, GBytes* bytes)
+void web_message_set_body (WebMessage* web_message, const gchar* contents, gsize length)
+{
+  g_return_if_fail (WEB_IS_MESSAGE (web_message));
+  g_return_if_fail (length == 0 || contents != NULL);
+  WebMessagePrivate* priv = web_message->priv;
+
+  _g_object_unref0 (priv->body);
+  priv->body = g_memory_input_stream_new_from_data (g_strndup (contents, length), length, g_free);
+}
+
+void web_message_set_body_bytes (WebMessage* web_message, GBytes* bytes)
 {
   g_return_if_fail (WEB_IS_MESSAGE (web_message));
   g_return_if_fail (bytes != NULL);
   WebMessagePrivate* priv = web_message->priv;
 
-  _g_bytes_unref0 (priv->body);
-  priv->body = g_bytes_ref (bytes);
+  _g_object_unref0 (priv->body);
+  priv->body = g_memory_input_stream_new_from_bytes (bytes);
 }
 
-void web_message_set_http_version (WebMessage* web_message, WebHttpVersion http_version)
+void web_message_set_body_stream (WebMessage* web_message, GInputStream* stream)
 {
   g_return_if_fail (WEB_IS_MESSAGE (web_message));
+  g_return_if_fail (G_IS_INPUT_STREAM (stream));
   WebMessagePrivate* priv = web_message->priv;
 
-  priv->http_version = http_version;
+  _g_object_unref0 (priv->body);
+  priv->body = g_object_ref (stream);
 }
 
-void web_message_set_method (WebMessage* web_message, const gchar* method)
+void web_message_set_body_take (WebMessage* web_message, gchar* contents, gsize length)
 {
   g_return_if_fail (WEB_IS_MESSAGE (web_message));
-  g_return_if_fail (method != NULL);
+  g_return_if_fail (length == 0 || contents != NULL);
   WebMessagePrivate* priv = web_message->priv;
 
-  priv->method = (gchar*) method;
-}
-
-void web_message_set_uri (WebMessage* web_message, GUri* uri)
-{
-  g_return_if_fail (WEB_IS_MESSAGE (web_message));
-  g_return_if_fail (uri != NULL);
-  WebMessagePrivate* priv = web_message->priv;
-
-  _g_uri_unref0 (priv->uri);
-  priv->uri = g_uri_ref (uri);
+  _g_object_unref0 (priv->body);
+  priv->body = g_memory_input_stream_new_from_data (contents, length, g_free);
 }
