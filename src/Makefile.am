@@ -32,7 +32,7 @@ noinst_HEADERS=\
 	webmessage.h \
 	webmessagefields.h \
 	webmessagemethods.h \
-	webrequest.h \
+	webparser.h \
 	webserver.h
 
 #
@@ -48,7 +48,7 @@ webserver_SOURCES=\
 	webhttpversion.c \
 	weblistenoptions.c \
 	webmessage.c \
-	webrequest.c \
+	webparser.c \
 	webserver.c
 webserver_CFLAGS=-flto \
 	-DG_LOG_DOMAIN=\"WebServer\" \

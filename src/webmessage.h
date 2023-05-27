@@ -45,6 +45,7 @@ extern "C" {
   };
 
   G_GNUC_INTERNAL GType web_message_get_type (void) G_GNUC_CONST;
+  G_GNUC_INTERNAL WebMessage* web_message_new ();
   G_GNUC_INTERNAL const gchar* web_message_get_field (WebMessage* web_message, const gchar* key);
   G_GNUC_INTERNAL void web_message_get_field_iter (WebMessage* web_message, GHashTableIter* iter);
   G_GNUC_INTERNAL WebHttpVersion web_message_get_http_version (WebMessage* web_message);

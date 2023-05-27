@@ -41,7 +41,7 @@ enum
   prop_number,
 };
 
-G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE (WebMessage, web_message, G_TYPE_OBJECT);
+G_DEFINE_TYPE_WITH_PRIVATE (WebMessage, web_message, G_TYPE_OBJECT);
 static GParamSpec* properties [prop_number] = {0};
 
 static void web_message_class_dispose (GObject* pself)
@@ -138,6 +138,11 @@ static void web_message_init (WebMessage* self)
   self->priv = web_message_get_instance_private (self);
   self->priv->fields = g_hash_table_new_full (func1, func2, g_free, g_free);
   self->priv->http_version = WEB_HTTP_VERSION_0_9;
+}
+
+WebMessage* web_message_new ()
+{
+  return g_object_new (WEB_TYPE_MESSAGE, NULL);
 }
 
 const gchar* web_message_get_field (WebMessage* web_message, const gchar* key)

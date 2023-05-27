@@ -20,7 +20,7 @@
 #include <webconnection.h>
 #include <webmessagefields.h>
 #include <webmessagemethods.h>
-#include <webrequest.h>
+#include <webparser.h>
 
 #define WEB_CONNECTION_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST ((klass), WEB_TYPE_CONNECTION, WebConnectionClass))
 #define WEB_IS_CONNECTION_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), WEB_TYPE_CONNECTION))
@@ -48,9 +48,10 @@ struct _WebConnection
   {
     gsize allocated;
     gpointer buffer;
-    gsize length;
     GQueue frames;
-    WebRequest* request;
+    gsize length;
+    WebParser parser;
+    WebParserPatterns* patterns;
   } io;
 };
 
@@ -85,8 +86,8 @@ static void web_connection_class_dispose (GObject* pself)
   WebConnection* self = (gpointer) pself;
   _g_object_unref0 (self->connection);
   _g_object_unref0 (self->input_stream);
-  _g_object_unref0 (self->io.request);
   g_queue_clear_full (& self->io.frames, g_object_unref);
+  web_parser_clear (& self->io.parser);
   _g_object_unref0 (self->iostream);
   _g_object_unref0 (self->output_stream);
   _g_object_unref0 (self->socket);
@@ -97,6 +98,7 @@ static void web_connection_class_finalize (GObject* pself)
 {
   WebConnection* self = (gpointer) pself;
   g_free (self->io.buffer);
+  web_parser_patterns_unref (self->io.patterns);
 
   if (G_LIKELY (self->source != NULL))
     {
@@ -173,7 +175,10 @@ static void web_connection_init (WebConnection* self)
   self->io.allocated = 0;
   self->io.buffer = NULL;
   self->io.length = 0;
-  self->io.request = NULL;
+  self->io.patterns = web_parser_patterns_new ();
+
+  g_queue_init (& self->io.frames);
+  web_parser_init (& self->io.parser);
 }
 
 WebConnection* web_connection_new (GSocket* socket, gboolean is_https)
@@ -218,7 +223,6 @@ static GIOStatus input_io_read (InputIO* io, GPollableInputStream* stream, GErro
         return G_IO_STATUS_EOF;
       else
         {
-          WebRequest* request;
           gchar *line, **frame;
           guint framesz, linesz, ignore;
           gsize i, j, last = 0;
@@ -231,22 +235,53 @@ static GIOStatus input_io_read (InputIO* io, GPollableInputStream* stream, GErro
                 {
                   ignore = (i > 0 && G_STRUCT_MEMBER (gchar, io->buffer, i - 1) == '\r') ? 1 : 0;
                   linesz = (i - last) - ignore;
-                  line = (linesz == 0) ? NULL : & G_STRUCT_MEMBER (gchar, io->buffer, last);
+                  line = & G_STRUCT_MEMBER (gchar, io->buffer, last);
                   last = i + 1;
 
-                  request = (io->request != NULL) ? io->request : (io->request = web_request_new ());
-
-                  if ((web_request_parse_line (request, line, linesz, &tmperr)), G_UNLIKELY (tmperr != NULL))
+                  if ((web_parser_feed (& io->parser, io->patterns, line, linesz, &tmperr)), G_UNLIKELY (tmperr != NULL))
                     {
                       g_propagate_error (error, tmperr);
                       return G_IO_STATUS_ERROR;
                     }
                   else
                     {
-                      if (web_request_is_complete (request))
+                      if (io->parser.complete == TRUE)
                         {
-                          g_assert (web_message_get_field (WEB_MESSAGE (request), WEB_MESSAGE_FIELD_CONTENT_LENGTH) == NULL);
-                          g_queue_push_tail (& io->frames, g_steal_pointer (& io->request));
+                          WebMessage* message;
+                          WebParserField* field;
+
+                          message = web_message_new ();
+
+                          web_message_set_http_version (message, io->parser.http_version);
+                          web_message_set_method (message, io->parser.method);
+                          web_message_set_uri (message, io->parser.uri);
+
+                          while ((field = g_queue_pop_head (& io->parser.fields)) != NULL)
+                            {
+                              const gchar* old = NULL;
+                              const gchar* name = field->name;
+                              const gchar* value = field->value;
+
+                              if ((old = web_message_get_field (message, name)) == NULL)
+                                {
+                                  gchar* name_ptr = g_steal_pointer (&field->name);
+                                  gchar* value_ptr = g_steal_pointer (&field->value);
+                                  web_message_insert_field_take (message, name_ptr, value_ptr);
+                                }
+                              else
+                                {
+                                  web_parser_field_add_value (field, old, strlen (old));
+                                  web_message_delete_field (message, name);
+                                  g_queue_push_head (& io->parser.fields, field);
+                                  continue;
+                                }
+
+                              web_parser_field_free (field);
+                            }
+
+                          web_parser_clear (& io->parser);
+                          web_parser_init (& io->parser);
+                          g_queue_push_tail (& io->frames, message);
                         }
                     }
                 }
@@ -312,12 +347,12 @@ static gboolean input_source (GSocket* socket, GIOCondition condition, WebConnec
                     return G_SOURCE_REMOVE;
                   case G_IO_STATUS_NORMAL:
                     {
-                      WebRequest* request;
+                      WebMessage* message;
 
-                      while ((request = g_queue_pop_head (& self->io.frames)) != NULL)
+                      while ((message = g_queue_pop_head (& self->io.frames)) != NULL)
                         {
-                          g_signal_emit (self, signals [signal_request_started], 0, request);
-                          g_object_unref (request);
+                          g_signal_emit (self, signals [signal_request_started], 0, message);
+                          g_object_unref (message);
                         }
                       break;
                     }
