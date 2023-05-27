@@ -46,6 +46,10 @@ extern "C" {
 
   G_GNUC_INTERNAL GType web_message_get_type (void) G_GNUC_CONST;
   G_GNUC_INTERNAL const gchar* web_message_get_field (WebMessage* web_message, const gchar* key);
+  G_GNUC_INTERNAL void web_message_get_field_iter (WebMessage* web_message, GHashTableIter* iter);
+  G_GNUC_INTERNAL WebHttpVersion web_message_get_http_version (WebMessage* web_message);
+  G_GNUC_INTERNAL const gchar* web_message_get_method (WebMessage* web_message);
+  G_GNUC_INTERNAL GUri* web_message_get_uri (WebMessage* web_message);
   G_GNUC_INTERNAL void web_message_insert_field (WebMessage* web_message, const gchar* key, const gchar* value);
   G_GNUC_INTERNAL void web_message_insert_field_take (WebMessage* web_message, gchar* key, gchar* value);
   G_GNUC_INTERNAL void web_message_delete_field (WebMessage* web_message, const gchar* key);

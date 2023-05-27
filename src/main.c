@@ -15,7 +15,6 @@
  * along with WebServer. If not, see <http://www.gnu.org/licenses/>.
  */
 #include <config.h>
-#include <gio/gio.h>
 #include <webmessage.h>
 #include <webserver.h>
 
@@ -71,6 +70,33 @@ static void on_open (WebServer* web_server, GFile** files, gint n_files)
   _g_object_unref0 (subst);
 }
 
+static void on_server_error (WebServer* web_server, GError* tmperr)
+{
+  const guint code = tmperr->code;
+  const gchar* domain = g_quark_to_string (tmperr->domain);
+  const gchar* message = tmperr->message;
+
+  g_warning ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
+}
+
+static void on_request_started (WebServer* web_server, WebMessage* web_message)
+{
+  GHashTableIter iter;
+  gchar *key, *value;
+
+  g_printerr ("frame {\n");
+  g_printerr ("  method: '%s';\n", web_message_get_method (web_message));
+  g_printerr ("  path: '%s';\n", g_uri_get_path (web_message_get_uri (web_message)));
+  g_printerr ("  version: '%s';\n", web_http_version_to_string (web_message_get_http_version (web_message)));
+  g_printerr ("  fields {\n");
+    web_message_get_field_iter (web_message, &iter);
+
+    while (g_hash_table_iter_next (&iter, (gpointer*) &key, (gpointer*) &value))
+      g_printerr ("     name: '%s', value '%s'\n", key, value);
+  g_printerr ("  }\n");
+  g_printerr ("}\n");
+}
+
 int main (int argc, gchar* argv [])
 {
   guint exit_code = 0;
@@ -81,9 +107,12 @@ int main (int argc, gchar* argv [])
   const GConnectFlags flags = (GConnectFlags) G_CONNECT_SWAPPED;
 
   application = g_application_new ("org.hck.webserver", G_APPLICATION_HANDLES_OPEN);
-  web_server = web_server_new (WEB_HTTP_VERSION_2_0);
+  web_server = web_server_new ();
 
   g_application_hold (application);
+  g_signal_connect (web_server, "listen-error", G_CALLBACK (on_server_error), NULL);
+  g_signal_connect (web_server, "request-error", G_CALLBACK (on_server_error), NULL);
+  g_signal_connect (web_server, "request-started", G_CALLBACK (on_request_started), NULL);
   g_signal_connect_data (application, "activate", G_CALLBACK (on_activate), g_object_ref (web_server), notify, flags);
   g_signal_connect_data (application, "open", G_CALLBACK (on_open), g_object_ref (web_server), notify, flags);
   g_object_unref (web_server);

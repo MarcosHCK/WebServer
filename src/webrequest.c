@@ -346,9 +346,15 @@ static void parse_request_line_simple (WebRequest* self, GMatchInfo* info, const
       path = g_utf8_make_valid (& G_STRUCT_MEMBER (gchar, line, path_start), path_end - path_start);
       uri = g_uri_parse_relative (klass->base_uri, path, G_URI_FLAGS_NON_DNS, &tmperr);
 
-      if ((g_free (path)), G_UNLIKELY (tmperr == NULL))
-        web_message_set_uri (WEB_MESSAGE (self), uri);
-        _g_uri_unref0 (uri);
+      web_message_set_method (WEB_MESSAGE (self), method);
+
+      if ((g_free (path)), G_UNLIKELY (tmperr != NULL))
+        g_propagate_error (error, tmperr);
+      else
+        {
+          web_message_set_uri (WEB_MESSAGE (self), uri);
+          _g_uri_unref0 (uri);
+        }
     }
 }
 

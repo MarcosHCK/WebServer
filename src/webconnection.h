@@ -17,7 +17,7 @@
 #ifndef __WEB_CONNECTION__
 #define __WEB_CONNECTION__ 1
 #include <gio/gio.h>
-#include <webhttpversion.h>
+#include <webmessage.h>
 
 #define WEB_TYPE_CONNECTION (web_connection_get_type ())
 #define WEB_CONNECTION(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), WEB_TYPE_CONNECTION, WebConnection))
@@ -29,11 +29,13 @@ extern "C" {
 #endif // __cplusplus
 
   G_GNUC_INTERNAL GType web_connection_get_type (void) G_GNUC_CONST;
-  G_GNUC_INTERNAL WebConnection* web_connection_new (GSocket* socket, WebHttpVersion http_version, gboolean is_https);
+  G_GNUC_INTERNAL WebConnection* web_connection_new (GSocket* socket, gboolean is_https);
   G_GNUC_INTERNAL void web_connection_accepted (WebConnection* web_connection);
-  G_GNUC_INTERNAL WebHttpVersion web_connection_get_http_version (WebConnection* web_connection);
   G_GNUC_INTERNAL gboolean web_connection_get_is_https (WebConnection* web_connection);
   G_GNUC_INTERNAL GSocket* web_connection_get_socket (WebConnection* web_connection);
+  G_GNUC_INTERNAL void web_connection_stall_read (WebConnection* web_connection, GError** error);
+  G_GNUC_INTERNAL void web_connection_stall_write (WebConnection* web_connection, GError** error);
+  G_GNUC_INTERNAL void Web_connection_send (WebConnection* web_connection, WebMessage* web_message, GError** error);
 
 #if __cplusplus
 }

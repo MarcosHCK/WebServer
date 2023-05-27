@@ -78,10 +78,10 @@ static void web_message_class_get_property (GObject* pself, guint property_id, G
         g_value_set_enum (value, priv->http_version);
         break;
       case prop_method:
-        g_value_set_pointer (value, priv->method);
+        g_value_set_pointer (value, (gpointer) web_message_get_method (self));
         break;
       case prop_uri:
-        g_value_set_boxed (value, priv->uri);
+        g_value_set_boxed (value, web_message_get_uri (self));
         break;
 
       default:
@@ -137,6 +137,7 @@ static void web_message_init (WebMessage* self)
 
   self->priv = web_message_get_instance_private (self);
   self->priv->fields = g_hash_table_new_full (func1, func2, g_free, g_free);
+  self->priv->http_version = WEB_HTTP_VERSION_0_9;
 }
 
 const gchar* web_message_get_field (WebMessage* web_message, const gchar* key)
@@ -145,6 +146,35 @@ const gchar* web_message_get_field (WebMessage* web_message, const gchar* key)
   g_return_val_if_fail (key != NULL, NULL);
   WebMessagePrivate* priv = web_message->priv;
 return g_hash_table_lookup (priv->fields, key);
+}
+
+void web_message_get_field_iter (WebMessage* web_message, GHashTableIter* iter)
+{
+  g_return_if_fail (WEB_IS_MESSAGE (web_message));
+  g_return_if_fail (iter != NULL);
+  WebMessagePrivate* priv = web_message->priv;
+  g_hash_table_iter_init (iter, priv->fields);
+}
+
+WebHttpVersion web_message_get_http_version (WebMessage* web_message)
+{
+  g_return_val_if_fail (WEB_IS_MESSAGE (web_message), 0);
+  WebMessagePrivate* priv = web_message->priv;
+return priv->http_version;
+}
+
+const gchar* web_message_get_method (WebMessage* web_message)
+{
+  g_return_val_if_fail (WEB_IS_MESSAGE (web_message), NULL);
+  WebMessagePrivate* priv = web_message->priv;
+return priv->method;
+}
+
+GUri* web_message_get_uri (WebMessage* web_message)
+{
+  g_return_val_if_fail (WEB_IS_MESSAGE (web_message), NULL);
+  WebMessagePrivate* priv = web_message->priv;
+return priv->uri;
 }
 
 void web_message_delete_field (WebMessage* web_message, const gchar* key)

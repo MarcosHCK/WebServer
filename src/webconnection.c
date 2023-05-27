@@ -37,7 +37,6 @@ struct _WebConnection
 
   /* private */
   GIOStream* connection;
-  WebHttpVersion http_version;
   GInputStream* input_stream;
   GIOStream* iostream;
   guint is_https : 1;
@@ -63,7 +62,6 @@ struct _WebConnectionClass
 enum
 {
   prop_0,
-  prop_http_version,
   prop_is_https,
   prop_socket,
   prop_number,
@@ -114,9 +112,6 @@ static void web_connection_class_get_property (GObject* pself, guint property_id
 
   switch (property_id)
     {
-      case prop_http_version:
-        g_value_set_enum (value, web_connection_get_http_version (self));
-        break;
       case prop_is_https:
         g_value_set_boolean (value, web_connection_get_is_https (self));
         break;
@@ -136,9 +131,6 @@ static void web_connection_class_set_property (GObject* pself, guint property_id
 
   switch (property_id)
     {
-      case prop_http_version:
-        self->http_version = g_value_get_enum (value);
-        break;
       case prop_is_https:
         self->is_https = g_value_get_boolean (value);
         break;
@@ -167,14 +159,13 @@ static void web_connection_class_init (WebConnectionClass* klass)
   const GSignalCMarshaller marshaller2 = g_cclosure_marshal_VOID__BOXED;
   const GSignalCMarshaller marshaller3 = g_cclosure_marshal_VOID__OBJECT;
 
-  properties [prop_http_version] = g_param_spec_enum ("http-version", "http-version", "http-version", WEB_TYPE_HTTP_VERSION, WEB_HTTP_VERSION_2_0, flags1);
   properties [prop_is_https] = g_param_spec_boolean ("is-https", "is-https", "is-https", FALSE, flags1);
   properties [prop_socket] = g_param_spec_object ("socket", "socket", "socket", G_TYPE_SOCKET, flags1);
   g_object_class_install_properties (G_OBJECT_CLASS (klass), prop_number, properties);
   signals [signal_connected] = g_signal_new ("connected", gtype, flags2, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 0);
   signals [signal_disconnected] = g_signal_new ("disconnected", gtype, flags2, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 0);
   signals [signal_request_failed] = g_signal_new ("request-failed", gtype, flags3, 0, NULL, NULL, marshaller2, G_TYPE_NONE, 1, G_TYPE_ERROR);
-  signals [signal_request_started] = g_signal_new ("request-started", gtype, flags3, 0, NULL, NULL, marshaller3, G_TYPE_NONE, 1, WEB_TYPE_MESSAGE);
+  signals [signal_request_started] = g_signal_new ("request-started", gtype, flags2, 0, NULL, NULL, marshaller3, G_TYPE_NONE, 1, WEB_TYPE_MESSAGE);
 }
 
 static void web_connection_init (WebConnection* self)
@@ -185,9 +176,9 @@ static void web_connection_init (WebConnection* self)
   self->io.request = NULL;
 }
 
-WebConnection* web_connection_new (GSocket* socket, WebHttpVersion http_version, gboolean is_https)
+WebConnection* web_connection_new (GSocket* socket, gboolean is_https)
 {
-  return g_object_new (WEB_TYPE_CONNECTION, "socket", socket, "http-version", http_version, "is-https", is_https, NULL);
+  return g_object_new (WEB_TYPE_CONNECTION, "socket", socket, "is-https", is_https, NULL);
 }
 
 static GIOStatus input_io_read (InputIO* io, GPollableInputStream* stream, GError** error)
@@ -363,12 +354,6 @@ void web_connection_accepted (WebConnection* web_connection)
   g_signal_emit (self, signals [signal_connected], 0);
 }
 
-WebHttpVersion web_connection_get_http_version (WebConnection* web_connection)
-{
-  g_return_val_if_fail (WEB_IS_CONNECTION (web_connection), 0);
-return web_connection->http_version;
-}
-
 gboolean web_connection_get_is_https (WebConnection* web_connection)
 {
   g_return_val_if_fail (WEB_IS_CONNECTION (web_connection), 0);
@@ -379,4 +364,24 @@ GSocket* web_connection_get_socket (WebConnection* web_connection)
 {
   g_return_val_if_fail (WEB_IS_CONNECTION (web_connection), NULL);
 return web_connection->socket;
+}
+
+void web_connection_stall_read (WebConnection* web_connection, GError** error)
+{
+  g_return_if_fail (WEB_IS_CONNECTION (web_connection));
+  WebConnection* self = (web_connection);
+  g_socket_shutdown (self->socket, 1, 0, error);
+}
+
+void web_connection_stall_write (WebConnection* web_connection, GError** error)
+{
+  g_return_if_fail (WEB_IS_CONNECTION (web_connection));
+  WebConnection* self = (web_connection);
+  g_socket_shutdown (self->socket, 0, 1, error);
+}
+
+void Web_connection_send (WebConnection* web_connection, WebMessage* web_message, GError** error)
+{
+  g_return_if_fail (WEB_IS_CONNECTION (web_connection));
+  g_return_if_fail (WEB_IS_MESSAGE (web_connection));
 }

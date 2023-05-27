@@ -25,5 +25,7 @@
 *.Tpo
 .dirstamp
 
+marshals.[ch]
+
 webserver*
 !webserver.[ch]

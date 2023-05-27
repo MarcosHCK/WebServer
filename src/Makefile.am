@@ -42,6 +42,7 @@ noinst_HEADERS=\
 
 webserver_SOURCES=\
 	main.c \
+	marshals.c \
 	webconnection.c \
 	webendpoint.c \
 	webhttpversion.c \
@@ -56,12 +57,18 @@ webserver_CFLAGS=-flto \
 webserver_LDFLAGS=-flto
 webserver_LDADD=$(GIO_LIBS)
 
+webendpoint.c: marshals.h
+
 #
 # Extensions
 # - .stringlist -> .c
 #
 
-SUFFIXES=.stringlist .c
+SUFFIXES=.list .stringlist .c .h
 
+.list.c:
+	$(GLIB_GENMARSHAL) --output $@ --prefix="web_cclosure_marshal" --include-header "config.h" --valist-marshallers --internal --prototypes --body $<
+.list.h:
+	$(GLIB_GENMARSHAL) --output $@ --prefix="web_cclosure_marshal" --include-header "config.h" --valist-marshallers --internal --prototypes --header $<
 .stringlist.c:
 	$(GPERF) --output-file $@ $<

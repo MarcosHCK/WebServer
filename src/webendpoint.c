@@ -17,6 +17,7 @@
 #include <config.h>
 #include <glib/gi18n.h>
 #include <gio/gnetworking.h>
+#include <marshals.h>
 #include <webendpoint.h>
 
 #define WEB_ENDPOINT_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST ((klass), WEB_TYPE_ENDPOINT, WebEndpointClass))
@@ -49,6 +50,7 @@ enum
 
 enum
 {
+  signal_failed_connection,
   signal_new_connection,
   signal_number,
 };
@@ -57,42 +59,14 @@ G_DEFINE_FINAL_TYPE (WebEndpoint, web_endpoint, G_TYPE_OBJECT);
 static GParamSpec* properties [prop_number] = {0};
 static guint signals [signal_number] = {0};
 
-static gboolean accept_source (GSocket* socket, GIOCondition condition, WebEndpoint* endpoint)
+static gboolean accept_source (GSocket* socket, GIOCondition condition, WebEndpoint* self)
 {
   if (g_source_is_destroyed (g_main_current_source ()))
     return G_SOURCE_REMOVE;
   else
     {
-      if (condition & G_IO_IN)
-        {
-          GSocket* client_socket = NULL;
-          GError* tmperr = NULL;
-
-          if ((client_socket = g_socket_accept (socket, NULL, &tmperr)), G_UNLIKELY (tmperr != NULL))
-            {
-              const gchar* domain = g_quark_to_string (tmperr->domain);
-              const gchar* message = tmperr->message;
-              const guint code = tmperr->code;
-
-              g_critical ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
-              _g_error_free0 (tmperr);
-              _g_object_unref0 (client_socket);
-            }
-
-          GValue param_values [2] = { G_VALUE_INIT, G_VALUE_INIT, };
-          GValue return_value [1] = { G_VALUE_INIT, };
-
-          g_value_init (return_value, G_TYPE_BOOLEAN);
-          g_value_init_from_instance (param_values + 0, endpoint);
-          g_value_init_from_instance (param_values + 1, client_socket);
-          g_object_unref (client_socket);
-
-          g_signal_emitv (param_values, signals [signal_new_connection], 0, return_value);
-
-          g_value_unset (param_values + 1);
-          g_value_unset (param_values + 0);
-          g_value_unset (return_value);
-        }
+      if (condition & ~(G_IO_IN | G_IO_ERR | G_IO_HUP))
+        g_assert_not_reached ();
 
       if (condition & (G_IO_ERR | G_IO_HUP))
         {
@@ -102,17 +76,27 @@ static gboolean accept_source (GSocket* socket, GIOCondition condition, WebEndpo
             g_error (_("Socket error reported but no error returned"));
           else
             {
-              const gchar* domain = g_quark_to_string (tmperr->domain);
-              const gchar* message = tmperr->message;
-              const guint code = tmperr->code;
-
-              g_critical ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
-              _g_error_free0 (tmperr);
+              g_signal_emit (self, signals [signal_failed_connection], 0, tmperr);
+              g_error_free (tmperr);
             }
         }
 
-      if (condition & ~(G_IO_IN | G_IO_ERR | G_IO_HUP))
-        g_assert_not_reached ();
+      if (condition & G_IO_IN)
+        {
+          GSocket* client_socket = NULL;
+          gboolean handled = FALSE;
+          GError* tmperr = NULL;
+
+          if ((client_socket = g_socket_accept (socket, NULL, &tmperr)), G_UNLIKELY (tmperr != NULL))
+            {
+              _g_object_unref0 (client_socket);
+              g_signal_emit (self, signals [signal_failed_connection], 0, tmperr);
+              g_error_free (tmperr);
+            }
+
+          if ((g_signal_emit (self, signals [signal_new_connection], 0, client_socket, &handled)), !handled)
+            g_socket_close (client_socket, NULL);
+        }
     }
 return G_SOURCE_CONTINUE;
 }
@@ -195,11 +179,13 @@ static void web_endpoint_class_init (WebEndpointClass* klass)
   const GParamFlags flags1 = G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS;
   const GSignalFlags flags2 = G_SIGNAL_RUN_FIRST;
   const GSignalAccumulator accum1 = g_signal_accumulator_true_handled;
-  const GSignalCMarshaller marshaller1 = g_cclosure_marshal_VOID__OBJECT;
+  const GSignalCMarshaller marshaller1 = web_cclosure_marshal_VOID__BOXED;
+  const GSignalCMarshaller marshaller2 = web_cclosure_marshal_BOOLEAN__OBJECT;
 
   properties [prop_socket] = g_param_spec_object ("socket", "socket", "socket", G_TYPE_SOCKET, flags1);
   g_object_class_install_properties (G_OBJECT_CLASS (klass), prop_number, properties);
-  signals [signal_new_connection] = g_signal_new ("new-connection", gtype, flags2, 0, accum1, NULL, marshaller1, G_TYPE_BOOLEAN, 1, G_TYPE_SOCKET);
+  signals [signal_failed_connection] = g_signal_new ("failed-connection", gtype, flags2, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);
+  signals [signal_new_connection] = g_signal_new ("new-connection", gtype, flags2, 0, accum1, NULL, marshaller2, G_TYPE_BOOLEAN, 1, G_TYPE_SOCKET);
 }
 
 static void web_endpoint_init (WebEndpoint* self)

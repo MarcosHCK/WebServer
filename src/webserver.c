@@ -17,6 +17,7 @@
 #include <config.h>
 #include <webconnection.h>
 #include <webendpoint.h>
+#include <webmessage.h>
 #include <webserver.h>
 
 #define WEB_SERVER_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST ((klass), WEB_TYPE_SERVER, WebServerClass))
@@ -33,7 +34,6 @@ struct _WebServer
 
   /* private */
   GQueue clients;
-  WebHttpVersion http_version;
   GQueue listeners;
 };
 
@@ -44,13 +44,14 @@ struct _WebServerClass
 
 enum
 {
-  prop_0,
-  prop_http_version,
-  prop_number,
+  signal_listen_error,
+  signal_request_error,
+  signal_request_started,
+  signal_number,
 };
 
 G_DEFINE_FINAL_TYPE (WebServer, web_server, G_TYPE_OBJECT);
-static GParamSpec* properties [prop_number] = {0};
+static guint signals [signal_number] = {0};
 
 static void web_server_class_dispose (GObject* pself)
 {
@@ -66,45 +67,20 @@ static void web_server_class_finalize (GObject* pself)
 G_OBJECT_CLASS (web_server_parent_class)->finalize (pself);
 }
 
-static void web_server_class_get_property (GObject* pself, guint property_id, GValue* value, GParamSpec* pspec)
-{
-  WebServer* self = (gpointer) pself;
-
-  switch (property_id)
-    {
-      default:
-        G_OBJECT_WARN_INVALID_PROPERTY_ID (pself, property_id, pspec);
-        break;
-    }
-}
-
-static void web_server_class_set_property (GObject* pself, guint property_id, const GValue* value, GParamSpec* pspec)
-{
-  WebServer* self = (gpointer) pself;
-
-  switch (property_id)
-    {
-      case prop_http_version:
-        self->http_version = g_value_get_enum (value);
-        break;
-
-      default:
-        G_OBJECT_WARN_INVALID_PROPERTY_ID (pself, property_id, pspec);
-        break;
-    }
-}
-
 static void web_server_class_init (WebServerClass* klass)
 {
   G_OBJECT_CLASS (klass)->dispose = web_server_class_dispose;
   G_OBJECT_CLASS (klass)->finalize = web_server_class_finalize;
-  G_OBJECT_CLASS (klass)->get_property = web_server_class_get_property;
-  G_OBJECT_CLASS (klass)->set_property = web_server_class_set_property;
 
-  const GParamFlags flags1 = G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS;
+  const GType gtype = G_TYPE_FROM_CLASS (klass);
+  const GSignalFlags flags1 = G_SIGNAL_RUN_LAST;
+  const GSignalFlags flags2 = G_SIGNAL_RUN_FIRST;
+  const GSignalCMarshaller marshaller1 = g_cclosure_marshal_VOID__BOXED;
+  const GSignalCMarshaller marshaller2 = g_cclosure_marshal_VOID__OBJECT;
 
-  properties [prop_http_version] = g_param_spec_enum ("http-version", "http-version", "http-version", WEB_TYPE_HTTP_VERSION, WEB_HTTP_VERSION_2_0, flags1);
-  g_object_class_install_properties (G_OBJECT_CLASS (klass), prop_number, properties);
+  signals [signal_listen_error] = g_signal_new ("listen-error", gtype, flags1, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);
+  signals [signal_request_error] = g_signal_new ("request-error", gtype, flags1, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);
+  signals [signal_request_started] = g_signal_new ("request-started", gtype, flags2, 0, NULL, NULL, marshaller2, G_TYPE_NONE, 1, WEB_TYPE_MESSAGE);
 }
 
 static void web_server_init (WebServer* self)
@@ -113,31 +89,40 @@ static void web_server_init (WebServer* self)
   g_queue_init (& self->listeners);
 }
 
-WebServer* web_server_new (WebHttpVersion http_version)
+WebServer* web_server_new ()
 {
-  return g_object_new (WEB_TYPE_SERVER, "http-version", http_version, NULL);
+  return g_object_new (WEB_TYPE_SERVER, NULL);
 }
 
-static gboolean on_client_disconnected (WebServer* self, WebConnection* web_connection)
+static void on_client_disconnected (WebServer* self, WebConnection* web_connection)
 {
-  g_print ("disconnected\n");
-return (g_queue_remove (& self->clients, web_connection), TRUE);
+  g_queue_remove (& self->clients, web_connection);
 }
 
-static gboolean on_client_request_started (WebServer* self)
+static void on_client_request_failed (WebServer* self, GError* tmperr, WebConnection* web_connection)
 {
-return TRUE;
+  g_signal_emit (self, signals [signal_request_error], 0, tmperr);
+}
+
+static void on_client_request_started (WebServer* self, WebMessage* web_message)
+{
+  g_signal_emit (self, signals [signal_request_started], 0, web_message);
+}
+
+static void on_failed_connection (WebServer* self, GError* tmperr)
+{
+  g_signal_emit (self, signals [signal_listen_error], 0, tmperr);
 }
 
 static gboolean on_new_connection (WebServer* self, GSocket* client_socket)
 {
-  WebConnection* web_connection = web_connection_new (client_socket, self->http_version, FALSE);
+  WebConnection* web_connection = web_connection_new (client_socket, FALSE);
 
   g_queue_push_head (& self->clients, g_object_ref (web_connection));
   g_signal_connect_swapped (web_connection, "disconnected", G_CALLBACK (on_client_disconnected), self);
+  g_signal_connect_swapped (web_connection, "request-failed", G_CALLBACK (on_client_request_failed), self);
   g_signal_connect_swapped (web_connection, "request-started", G_CALLBACK (on_client_request_started), self);
   web_connection_accepted (web_connection);
-  g_print ("connected\n");
 return (g_object_unref (web_connection), TRUE);
 }
 

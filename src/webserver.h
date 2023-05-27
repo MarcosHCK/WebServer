@@ -17,7 +17,6 @@
 #ifndef __WEB_SERVER__
 #define __WEB_SERVER__ 1
 #include <gio/gio.h>
-#include <webhttpversion.h>
 #include <weblistenoptions.h>
 
 #define WEB_TYPE_SERVER (web_server_get_type ())
@@ -30,7 +29,7 @@ extern "C" {
 #endif // __cplusplus
 
   G_GNUC_INTERNAL GType web_server_get_type (void) G_GNUC_CONST;
-  G_GNUC_INTERNAL WebServer* web_server_new (WebHttpVersion http_version);
+  G_GNUC_INTERNAL WebServer* web_server_new ();
   G_GNUC_INTERNAL void web_server_listen (WebServer* web_server, GSocketAddress* address, WebListenOptions options, GError** error);
   G_GNUC_INTERNAL void web_server_listen_any (WebServer* web_server, guint16 port, WebListenOptions options, GError** error);
 
