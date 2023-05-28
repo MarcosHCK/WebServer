@@ -33,8 +33,6 @@ noinst_HEADERS=\
 	webmessagefields.h \
 	webmessagemethods.h \
 	webparser.h \
-	webrequest.h \
-	webresponse.h \
 	webserver.h \
 	webstatuscode.h
 
@@ -51,9 +49,9 @@ webserver_SOURCES=\
 	webhttpversion.c \
 	weblistenoptions.c \
 	webmessage.c \
+	webmessagebody.c \
+	webmessageheaders.c \
 	webparser.c \
-	webrequest.c \
-	webresponse.c \
 	webserver.c \
 	webstatuscode.c
 webserver_CFLAGS=-flto \

@@ -15,19 +15,32 @@
  * along with WebServer. If not, see <http://www.gnu.org/licenses/>.
  */
 #include <config.h>
-#include <webresponse.h>
+#include <webmessage.h>
 
-struct _WebResponsePrivate
+struct _WebMessageBody
 {
-  WebStatusCode status_code;
+  int dummy;
 };
 
-G_DEFINE_TYPE_WITH_PRIVATE (WebResponse, web_response, WEB_TYPE_MESSAGE);
-
-static void web_response_class_init (WebResponseClass* klass)
+static gpointer nullfunc (gpointer ptr)
 {
+  g_assert_not_reached ();
 }
 
-static void web_response_init (WebResponse* self)
+G_DEFINE_BOXED_TYPE (WebMessageBody, web_message_body, nullfunc, web_message_body_free);
+
+WebMessageBody* web_message_body_new ()
 {
+  WebMessageBody* self;
+
+  self = g_slice_new (WebMessageBody);
+return (self);
+}
+
+void web_message_body_free (WebMessageBody* web_message_body)
+{
+  g_return_if_fail (web_message_body != NULL);
+  WebMessageBody* self = (web_message_body);
+
+  g_slice_free (WebMessageBody, self);
 }

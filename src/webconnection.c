@@ -19,9 +19,9 @@
 #include <glib/gi18n.h>
 #include <gio/gnetworking.h>
 #include <webconnection.h>
+#include <webmessage.h>
 #include <webmessagefields.h>
 #include <webmessagemethods.h>
-#include <webrequest.h>
 #include <webparser.h>
 
 #define WEB_CONNECTION_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST ((klass), WEB_TYPE_CONNECTION, WebConnectionClass))
@@ -238,6 +238,7 @@ return (io->parser.complete == FALSE) ? G_IO_STATUS_AGAIN : G_IO_STATUS_NORMAL;
 WebMessage* web_connection_step (WebConnection* self, GError** error)
 {
   WebMessage* web_message = NULL;
+  WebMessageHeaders* web_message_headers = NULL;
   GError* tmperr = NULL;
   GIOStatus status = 0;
 
@@ -258,37 +259,22 @@ WebMessage* web_connection_step (WebConnection* self, GError** error)
           case G_IO_STATUS_NORMAL:
             {
               struct _InputIO* io = NULL;
-              WebRequest* web_request = NULL;
-              WebParserField* field;
+              WebParserField* field = NULL;
 
               io = G_STRUCT_MEMBER_P (self, G_STRUCT_OFFSET (WebConnection, in));
-              web_message = web_request_new();
-              web_request = WEB_REQUEST (web_message);
+              web_message = web_message_new ();
+              web_message_headers = web_message_get_headers (web_message);
 
-              web_request_set_http_version (web_request, io->parser.http_version);
-              web_request_set_method (web_request, io->parser.method);
-              web_request_set_uri (web_request, io->parser.uri);
+              web_message_set_http_version (web_message, io->parser.http_version);
+              web_message_set_method (web_message, io->parser.method);
+              web_message_set_uri (web_message, io->parser.uri);
 
               while ((field = g_queue_pop_head (& io->parser.fields)) != NULL)
                 {
-                  const gchar* old = NULL;
-                  const gchar* name = field->name;
-                  const gchar* value = field->value;
+                  gchar* name = g_steal_pointer (& field->name);
+                  gchar* value = g_steal_pointer (& field->value);
 
-                  if ((old = web_message_get_field (web_message, name)) == NULL)
-                    {
-                      gchar* name_ptr = g_steal_pointer (&field->name);
-                      gchar* value_ptr = g_steal_pointer (&field->value);
-                      web_message_insert_field_take (web_message, name_ptr, value_ptr);
-                    }
-                  else
-                    {
-                      web_parser_field_add_value (field, old, strlen (old));
-                      web_message_delete_field (web_message, name);
-                      g_queue_push_head (& io->parser.fields, field);
-                      continue;
-                    }
-
+                  web_message_headers_append_take (web_message_headers, name, value);
                   web_parser_field_free (field);
                 }
 
