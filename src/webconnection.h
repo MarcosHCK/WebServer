@@ -23,14 +23,25 @@
 #define WEB_CONNECTION(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), WEB_TYPE_CONNECTION, WebConnection))
 #define WEB_IS_CONNECTION(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WEB_TYPE_CONNECTION))
 typedef struct _WebConnection WebConnection;
+#define WEB_CONNECTION_ERROR (web_connection_error_quark ())
 
 #if __cplusplus
 extern "C" {
 #endif // __cplusplus
 
+  typedef enum
+  {
+    WEB_CONNECTION_ERROR_FAILED,
+    WEB_CONNECTION_ERROR_MISMATCH_VERSION,
+    WEB_CONNECTION_ERROR_OLD_CLIENT,
+    WEB_CONNECTION_ERROR_REQUEST_OVERFLOW,
+  } WebConnectionError;
+
   G_GNUC_INTERNAL GType web_connection_get_type (void) G_GNUC_CONST;
+  G_GNUC_INTERNAL GQuark web_connection_error_quark (void) G_GNUC_CONST;
   G_GNUC_INTERNAL WebConnection* web_connection_new (GSocket* socket, gboolean is_https);
-  G_GNUC_INTERNAL WebMessage* web_connection_step (WebConnection* self, GError** error);
+  G_GNUC_INTERNAL void web_connection_send (WebConnection* web_connection, WebMessage* web_message);
+  G_GNUC_INTERNAL WebMessage* web_connection_step (WebConnection* web_connection, GError** error);
 
 #if __cplusplus
 }

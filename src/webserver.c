@@ -48,12 +48,13 @@ struct _WebServerClass
 
 union _SignalData
 {
-  GValue values [2];
+  GValue values [3];
 
   struct
   {
     GValue instance;
     GValue argument;
+    GValue connection;
   };
 };
 
@@ -90,11 +91,12 @@ static void web_server_class_init (WebServerClass* klass)
   const GType gtype = G_TYPE_FROM_CLASS (klass);
   const GSignalFlags flags1 = G_SIGNAL_RUN_LAST;
   const GSignalFlags flags2 = G_SIGNAL_RUN_LAST;
+  const GSignalAccumulator accum1 = g_signal_accumulator_true_handled;
   const GSignalCMarshaller marshaller1 = web_cclosure_marshal_VOID__BOXED;
-  const GSignalCMarshaller marshaller2 = web_cclosure_marshal_VOID__OBJECT;
+  const GSignalCMarshaller marshaller2 = web_cclosure_marshal_BOOLEAN__OBJECT;
 
   signals [signal_got_failure] = g_signal_new ("got-failure", gtype, flags1, 0, NULL, NULL, marshaller1, G_TYPE_NONE, 1, G_TYPE_ERROR);
-  signals [signal_got_request] = g_signal_new ("got-request", gtype, flags2, 0, NULL, NULL, marshaller2, G_TYPE_NONE, 1, WEB_TYPE_MESSAGE);
+  signals [signal_got_request] = g_signal_new ("got-request", gtype, flags2, 0, accum1, NULL, marshaller2, G_TYPE_BOOLEAN, 1, WEB_TYPE_MESSAGE);
 }
 
 static gboolean do_got_failure (gpointer values)
@@ -104,13 +106,29 @@ static gboolean do_got_failure (gpointer values)
 
 static gboolean do_got_request (gpointer values)
 {
-  return (g_signal_emitv (values, signals [signal_got_request], 0, NULL), G_SOURCE_REMOVE);
+  WebServer* web_server = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, instance)));
+  WebMessage* web_message = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, argument)));
+  WebConnection* web_connection = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, connection)));
+  GValue handled [1] = { G_VALUE_INIT, };
+
+  g_value_init (handled, G_TYPE_BOOLEAN);
+  g_signal_emitv (values, signals [signal_got_request], 0, handled);
+
+  if (g_value_get_boolean (handled) == FALSE)
+    {
+      web_message_set_is_closure (web_message, TRUE);
+      web_message_set_status (web_message, WEB_STATUS_CODE_NOT_IMPLEMENTED);
+    }
+
+    web_connection_send (web_connection, web_message);
+return (g_value_unset (handled), G_SOURCE_REMOVE);
 }
 
 static void signal_data_unref (gpointer ptr)
 {
   g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, sizeof (GValue) * 0));
   g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, sizeof (GValue) * 1));
+  g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, sizeof (GValue) * 2));
   g_slice_free (SignalData, ptr);
 }
 
@@ -127,9 +145,10 @@ static void process (WebConnection* web_connection, WebServer* self)
         {
           SignalData* data = g_slice_new0 (SignalData);
 
-          g_value_init_from_instance (& data->instance, self);
           g_value_init (& data->argument, G_TYPE_ERROR);
           g_value_take_boxed (& data->argument, tmperr);
+          g_value_init_from_instance (&data->connection, web_connection);
+          g_value_init_from_instance (& data->instance, self);
 
           g_main_context_invoke_full (self->context, G_PRIORITY_HIGH_IDLE, G_SOURCE_FUNC (do_got_failure), data, signal_data_unref);
         }
@@ -142,11 +161,12 @@ static void process (WebConnection* web_connection, WebServer* self)
         {
           SignalData* data = g_slice_new0 (SignalData);
 
-          g_value_init_from_instance (& data->instance, self);
-          g_value_init_from_instance (& data->argument, web_message);
+          g_value_init_from_instance (&data->argument, web_message);
+          g_value_init_from_instance (&data->connection, web_connection);
+          g_value_init_from_instance (&data->instance, self);
+          g_object_unref (web_message);
 
           g_main_context_invoke_full (self->context, G_PRIORITY_HIGH_IDLE, G_SOURCE_FUNC (do_got_request), data, signal_data_unref);
-          g_object_unref (web_message);
         }
 
       g_thread_pool_push (self->workers, web_connection, NULL);

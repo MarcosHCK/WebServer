@@ -63,6 +63,7 @@ webserver_LDADD=$(GIO_LIBS)
 
 webconnection.c: marshals.h
 webendpoint.c: marshals.h
+webmessage.c: marshals.h
 webserver.c: marshals.h
 
 #

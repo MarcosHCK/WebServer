@@ -16,8 +16,8 @@
  */
 #include <config.h>
 #include <marshals.h>
-#include <glib/gi18n.h>
 #include <gio/gnetworking.h>
+#include <glib/gi18n.h>
 #include <webconnection.h>
 #include <webmessage.h>
 #include <webmessagefields.h>
@@ -28,6 +28,7 @@
 #define WEB_IS_CONNECTION_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), WEB_TYPE_CONNECTION))
 #define WEB_CONNECTION_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), WEB_TYPE_CONNECTION, WebConnectionClass))
 typedef struct _WebConnectionClass WebConnectionClass;
+G_GNUC_INTERNAL guint _web_message_get_freeze_count (WebMessage* web_message);
 #define _g_error_free0(var) ((var == NULL) ? NULL : (var = (g_error_free (var), NULL)))
 #define _g_free0(var) ((var == NULL) ? NULL : (var = (g_free (var), NULL)))
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
@@ -36,7 +37,8 @@ struct _WebConnection
 {
   GObject parent;
 
-  /* private */
+  /*<private>*/
+  WebHttpVersion http_version;
   guint is_https : 1;
   GInputStream* input_stream;
   GIOStream* iostream;
@@ -48,16 +50,42 @@ struct _WebConnection
   {
     gsize allocated;
     gpointer buffer;
+    guint closed : 1;
     gsize length;
-    gsize unscanned;
-
     WebParser parser;
+    gsize unscanned;
   } in;
+
+  struct _OutputIO
+  {
+    gsize allocated;
+    gpointer buffer;
+    guint closed : 1;
+    guint is_closure : 1;
+    gsize length;
+    GMutex lock;
+    GQueue queue;
+    guint seqidn;
+    guint seqidp;
+    GPollableInputStream* splice;
+    gsize wrote;
+  } out;
 };
 
 struct _WebConnectionClass
 {
   GObjectClass parent;
+};
+
+struct _Frame
+{
+  union
+  {
+    guint seqid;
+    gpointer seqid_ptr;
+  };
+
+  WebMessage* web_message;
 };
 
 enum
@@ -69,6 +97,8 @@ enum
 };
 
 G_DEFINE_FINAL_TYPE (WebConnection, web_connection, G_TYPE_OBJECT);
+G_DEFINE_QUARK (web-connection-error-quark, web_connection_error);
+G_DEFINE_QUARK (web-connection-sequence-id-quark, seqid);
 static GParamSpec* properties [prop_number] = {0};
 
 static void web_connection_class_constructed (GObject* pself)
@@ -85,11 +115,29 @@ G_OBJECT_CLASS (web_connection_parent_class)->constructed (pself);
   else g_assert_not_reached ();
 }
 
+static int frame_cmp (gconstpointer a_, gconstpointer b_, gpointer u)
+{
+  guint a = G_STRUCT_MEMBER (guint, a_, G_STRUCT_OFFSET (struct _Frame, seqid));
+  guint b = G_STRUCT_MEMBER (guint, b_, G_STRUCT_OFFSET (struct _Frame, seqid));
+return (a < b) ? -1 : ((a == b) ? 0 : 1);
+}
+
+static void frame_free (gpointer ptr)
+{
+  struct _Frame* frame = ptr;
+
+  _g_object_unref0 (frame->web_message);
+  g_slice_free (struct _Frame, frame);
+}
+
 static void web_connection_class_dispose (GObject* pself)
 {
   WebConnection* self = (gpointer) pself;
   _g_object_unref0 (self->input_stream);
   _g_object_unref0 (self->iostream);
+  g_mutex_clear (& self->out.lock);
+  _g_object_unref0 (self->out.splice);
+  g_queue_clear_full (& self->out.queue, frame_free);
   _g_object_unref0 (self->output_stream);
   _g_object_unref0 (self->socket);
   _g_object_unref0 (self->socket_connection);
@@ -99,8 +147,10 @@ G_OBJECT_CLASS (web_connection_parent_class)->dispose (pself);
 static void web_connection_class_finalize (GObject* pself)
 {
   WebConnection* self = (gpointer) pself;
-  g_free (self->in.buffer);
+
+  _g_free0 (self->in.buffer);
   web_parser_clear (& self->in.parser);
+  _g_free0 (self->out.buffer);
 G_OBJECT_CLASS (web_connection_parent_class)->finalize (pself);
 }
 
@@ -142,12 +192,23 @@ static void web_connection_class_init (WebConnectionClass* klass)
 
 static void web_connection_init (WebConnection* self)
 {
+  self->http_version = WEB_HTTP_VERSION_NONE;
+
   self->in.allocated = 0;
   self->in.buffer = NULL;
   self->in.length = 0;
   self->in.unscanned = 0;
+  self->out.allocated = 0;
+  self->out.buffer = NULL;
+  self->out.is_closure = 0;
+  self->out.length = 0;
+  self->out.seqidn = 0;
+  self->out.seqidp = 0;
+  self->out.wrote = 0;
 
   web_parser_init (& self->in.parser);
+  g_mutex_init (& self->out.lock);
+  g_queue_init (& self->out.queue);
 }
 
 WebConnection* web_connection_new (GSocket* socket, gboolean is_https)
@@ -176,16 +237,13 @@ static GIOStatus process_in (struct _InputIO* io, GPollableInputStream* stream, 
 
       if (G_UNLIKELY (tmperr != NULL))
         {
-          if (g_error_matches (tmperr, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK))
+          if (!g_error_matches (tmperr, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK))
+            return (g_propagate_error (error, tmperr), G_IO_STATUS_ERROR);
+          else
             {
               g_error_free (tmperr);
               g_assert (read == -1);
               break;
-            }
-          else
-            {
-              g_propagate_error (error, tmperr);
-              return G_IO_STATUS_ERROR;
             }
         }
       else if (read == 0 && io->length == 0)
@@ -235,54 +293,310 @@ static GIOStatus process_in (struct _InputIO* io, GPollableInputStream* stream, 
 return (io->parser.complete == FALSE) ? G_IO_STATUS_AGAIN : G_IO_STATUS_NORMAL;
 }
 
-WebMessage* web_connection_step (WebConnection* self, GError** error)
+static void printout (struct _OutputIO* io, const gchar* fmt, ...)
 {
+  va_list try, list;
+  gsize needed, wrote;
+  gpointer block;
+
+  va_start (try, fmt);
+  G_VA_COPY (list, try);
+
+  needed = g_printf_string_upper_bound (fmt, try);
+
+  if ((io->length + needed) > io->allocated)
+    {
+      io->allocated = (io->length + needed) << 1;
+      io->buffer = g_realloc (io->buffer, io->allocated);
+    }
+
+  block = G_STRUCT_MEMBER_P (io->buffer, io->length);
+  wrote = g_vsnprintf (block, io->allocated, fmt, list);
+  io->length += wrote;
+return (va_end (try), va_end (list), (void) wrote);
+}
+
+static void serialize (struct _OutputIO* io, WebMessage* web_message)
+{
+  WebMessageBody* body = NULL;
+  const gchar* content_encoding = NULL;
+  GInputStream* content_stream = NULL;
+  const gchar* content_type = NULL;
+  gchar* date = NULL;
+  GDateTime* datetime = NULL;
+  WebHttpVersion http_version = 0;
+  gboolean is_closure = FALSE;
+  gsize length = 0;
+  GIOStatus status = 0;
+  WebStatusCode status_code = 0;
+
+  body = web_message_get_response (web_message);
+  datetime = g_date_time_new_now_utc ();
+  http_version = web_message_get_http_version (web_message);
+  is_closure = web_message_get_is_closure (web_message);
+  status_code = web_message_get_status (web_message);
+
+  printout (io, "HTTP/%s", web_http_version_to_string (http_version));
+  printout (io, " %i %s", status_code, web_status_code_get_inline (status_code));
+  printout (io, "\r\n");
+  printout (io, "Connection: %s\r\n", is_closure ? "Close" : "Keep-Alive");
+
+  if ((length = web_message_body_get_content_length (body)) > 0)
+    {
+      content_encoding = web_message_body_get_content_encoding (body);
+      content_stream = web_message_body_get_stream (body);
+      content_type = web_message_body_get_content_type (body);
+
+      io->splice = g_object_ref (G_POLLABLE_INPUT_STREAM (content_stream));
+
+      if (content_encoding != NULL)
+      printout (io, "Content-Encoding: %s\r\n", content_encoding);
+      printout (io, "Content-Length: %" G_GINT64_MODIFIER "i\r\n", length);
+      printout (io, "Content-Type: %s\r\n", content_type);
+    }
+
+  printout (io, "Date: %s\r\n", date = g_date_time_format (datetime, "%a, %d %b %Y %T GMT"));
+  printout (io, "Server: " PACKAGE_NAME "/" PACKAGE_VERSION "\r\n");
+  printout (io, "\r\n");
+  g_free (date);
+}
+
+static GIOStatus process_out (struct _OutputIO* io, GPollableOutputStream* stream, GError** error)
+{
+  const goffset blocksz = 256;
+
+  if (io->wrote == io->length)
+    {
+      io->length = 0;
+      io->wrote = 0;
+
+      if (io->splice != NULL)
+        {
+          while (TRUE)
+            {
+              GError* tmperr = NULL;
+              gpointer block = NULL;
+              gssize read = 0;
+
+              if ((io->length + blocksz) > io->allocated)
+                {
+                  io->allocated = io->length + blocksz;
+                  io->buffer = g_realloc (io->buffer, io->allocated);
+                }
+
+              block = G_STRUCT_MEMBER_P (io->buffer, io->length);
+              read = g_pollable_input_stream_read_nonblocking (io->splice, block, blocksz, NULL, &tmperr);
+
+              if (G_UNLIKELY (tmperr == NULL))
+                {
+                  if (read > 0)
+                    io->length += read;
+                  else
+                    {
+                      _g_object_unref0 (io->splice);
+                      break;
+                    }
+                }
+              else
+                {
+                  if (!g_error_matches (tmperr, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK))
+                    return (g_propagate_error (error, tmperr), G_IO_STATUS_ERROR);
+                  else
+                    {
+                      g_error_free (tmperr);
+                      g_assert (read == -1);
+                      break;
+                    }
+                }
+            }
+        }
+      else if (io->is_closure == TRUE)
+        {
+          return G_IO_STATUS_EOF;
+        }
+      else if (g_mutex_trylock (& io->lock))
+        {
+          struct _Frame* frame = NULL;
+
+          if ((frame = g_queue_peek_head (& io->queue)) == NULL)
+            g_mutex_unlock (& io->lock);
+          else if ((frame->seqid == 0) || ((frame->seqid - 1) == io->seqidp) == FALSE)
+            g_mutex_unlock (& io->lock);
+          else
+            {
+              io->seqidp = frame->seqid;
+              io->is_closure = web_message_get_is_closure (frame->web_message);
+
+              g_queue_pop_head (& io->queue);
+              g_mutex_unlock (& io->lock);
+              serialize (io, frame->web_message);
+              frame_free (frame);
+            }
+        }
+    }
+  else while (TRUE)
+    {
+      GError* tmperr = NULL;
+      gpointer block = NULL;
+      gsize wrote = 0;
+
+      block = G_STRUCT_MEMBER_P (io->buffer, io->wrote);
+      wrote = g_pollable_output_stream_write_nonblocking (stream, block, io->length - io->wrote, NULL, &tmperr);
+
+      if (G_UNLIKELY (tmperr == NULL))
+        io->wrote += wrote;
+      else
+        {
+          if (!g_error_matches (tmperr, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK))
+            return (g_propagate_error (error, tmperr), G_IO_STATUS_ERROR);
+          else
+            {
+              g_error_free (tmperr);
+              g_assert (wrote == -1);
+              break;
+            }
+        }
+
+      break;
+    }
+return (io->length > io->wrote) ? G_IO_STATUS_AGAIN : G_IO_STATUS_NORMAL;
+}
+
+static void on_message_thawed (WebMessage* web_message, guint freeze_count, WebConnection* web_connection)
+{
+  if (freeze_count == 0)
+    {
+      g_signal_handlers_disconnect_by_data (web_message, web_connection);
+      web_connection_send (web_connection, web_message);
+    }
+}
+
+void web_connection_send (WebConnection* web_connection, WebMessage* web_message)
+{
+  g_return_if_fail (WEB_IS_CONNECTION (web_connection));
+  g_return_if_fail (WEB_IS_MESSAGE (web_message));
+  WebConnection* self = (web_connection);
+  struct _Frame* frame = NULL;
+
+  if (_web_message_get_freeze_count (web_message) > 0)
+    g_signal_connect_object (web_message, "thawed", G_CALLBACK (on_message_thawed), web_connection, 0);
+  else
+    {
+      frame = g_slice_new (struct _Frame);
+      frame->web_message = g_object_ref (web_message);
+      frame->seqid_ptr = g_object_get_qdata (G_OBJECT (web_message), seqid_quark ());
+
+      g_mutex_lock (& self->out.lock);
+      g_queue_insert_sorted (& self->out.queue, frame, frame_cmp, NULL);
+      g_mutex_unlock (& self->out.lock);
+    }
+}
+
+WebMessage* web_connection_step (WebConnection* web_connection, GError** error)
+{
+  g_return_val_if_fail (WEB_IS_CONNECTION (web_connection), NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+  WebConnection* self = (web_connection);
   WebMessage* web_message = NULL;
   WebMessageHeaders* web_message_headers = NULL;
   GError* tmperr = NULL;
   GIOStatus status = 0;
 
-  if ((status = process_in (& self->in, G_POLLABLE_INPUT_STREAM (self->input_stream), &tmperr)), G_UNLIKELY (tmperr != NULL))
+  if ((status = process_out (& self->out, G_POLLABLE_OUTPUT_STREAM (self->output_stream), &tmperr)), G_UNLIKELY (tmperr != NULL))
     g_propagate_error (error, tmperr);
   else
     {
       switch (status)
-        {
-          case G_IO_STATUS_AGAIN:
+      {
+        case G_IO_STATUS_AGAIN:
+          break;
+
+        case G_IO_STATUS_EOF:
+          g_output_stream_flush (self->output_stream, NULL, NULL);
+          g_output_stream_close (self->output_stream, NULL, NULL);
+          G_GNUC_FALLTHROUGH;
+        case G_IO_STATUS_ERROR:
+          g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_CONNECTION_CLOSED, _("Connection closed"));
+          break;
+
+        case G_IO_STATUS_NORMAL:
+          {
+            if ((status = process_in (& self->in, G_POLLABLE_INPUT_STREAM (self->input_stream), &tmperr)), G_UNLIKELY (tmperr != NULL))
+              g_propagate_error (error, tmperr);
+            else
+              {
+                switch (status)
+                  {
+                    case G_IO_STATUS_AGAIN:
+                      break;
+
+                    case G_IO_STATUS_EOF:
+                      g_input_stream_close (self->input_stream, NULL, NULL);
+                      G_GNUC_FALLTHROUGH;
+                    case G_IO_STATUS_ERROR:
+                      g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_CONNECTION_CLOSED, _("Connection closed"));
+                      break;
+
+                    case G_IO_STATUS_NORMAL:
+                      {
+                        struct _InputIO* io = G_STRUCT_MEMBER_P (self, G_STRUCT_OFFSET (WebConnection, in));
+                        WebParserField* field = NULL;
+
+                        if (self->http_version == WEB_HTTP_VERSION_NONE)
+                          self->http_version = io->parser.http_version;
+                        else
+                          {
+                            if (io->parser.http_version != self->http_version)
+                              {
+                                web_parser_clear (& io->parser);
+                                web_parser_init (& io->parser);
+
+                                g_set_error_literal (error, WEB_CONNECTION_ERROR, WEB_CONNECTION_ERROR_MISMATCH_VERSION, _("Request versions mismatches"));
+                                break;
+                              }
+                          }
+
+                        web_message = web_message_new ();
+                        web_message_headers = web_message_get_headers (web_message);
+
+                        web_message_set_http_version (web_message, io->parser.http_version);
+                        web_message_set_method (web_message, io->parser.method);
+                        web_message_set_uri (web_message, io->parser.uri);
+
+                        if (self->http_version >= WEB_HTTP_VERSION_2_0)
+                          g_object_set_qdata (G_OBJECT (web_message), seqid_quark (), GUINT_TO_POINTER (0));
+                        else
+                          {
+                            if (!g_uint_checked_add (& self->out.seqidn, 1, self->out.seqidn))
+                              {
+                                web_parser_clear (& io->parser);
+                                web_parser_init (& io->parser);
+
+                                g_set_error_literal (error, WEB_CONNECTION_ERROR, WEB_CONNECTION_ERROR_REQUEST_OVERFLOW, _("Too much requests for connection"));
+                                break;
+                              }
+
+                            g_object_set_qdata (G_OBJECT (web_message), seqid_quark (), GUINT_TO_POINTER (self->out.seqidn));
+                          }
+
+                        while ((field = g_queue_pop_head (& io->parser.fields)) != NULL)
+                          {
+                            gchar* name = g_steal_pointer (& field->name);
+                            gchar* value = g_steal_pointer (& field->value);
+
+                            web_message_headers_append_take (web_message_headers, name, value);
+                            web_parser_field_free (field);
+                          }
+
+                        web_parser_clear (& io->parser);
+                        web_parser_init (& io->parser);
+                        break;
+                      }
+                  }
+              }
             break;
-
-          case G_IO_STATUS_EOF:
-          case G_IO_STATUS_ERROR:
-            g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_CONNECTION_CLOSED, "Connection closed");
-            break;
-
-          case G_IO_STATUS_NORMAL:
-            {
-              struct _InputIO* io = NULL;
-              WebParserField* field = NULL;
-
-              io = G_STRUCT_MEMBER_P (self, G_STRUCT_OFFSET (WebConnection, in));
-              web_message = web_message_new ();
-              web_message_headers = web_message_get_headers (web_message);
-
-              web_message_set_http_version (web_message, io->parser.http_version);
-              web_message_set_method (web_message, io->parser.method);
-              web_message_set_uri (web_message, io->parser.uri);
-
-              while ((field = g_queue_pop_head (& io->parser.fields)) != NULL)
-                {
-                  gchar* name = g_steal_pointer (& field->name);
-                  gchar* value = g_steal_pointer (& field->value);
-
-                  web_message_headers_append_take (web_message_headers, name, value);
-                  web_parser_field_free (field);
-                }
-
-              web_parser_clear (& io->parser);
-              web_parser_init (& io->parser);
-              break;
-            }
-        }
+          }
+      }
     }
 return (web_message);
 }

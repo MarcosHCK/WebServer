@@ -79,7 +79,7 @@ static void on_got_failure (WebServer* web_server, GError* tmperr)
   g_warning ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
 }
 
-static void on_got_request (WebServer* web_server, WebMessage* web_message)
+static gboolean on_got_request (WebServer* web_server, WebMessage* web_message)
 {
   WebMessageHeaders* headers = NULL;
   WebMessageHeadersIter iter = {0};
@@ -120,6 +120,7 @@ static void on_got_request (WebServer* web_server, WebMessage* web_message)
 
   g_printerr ("  }\n");
   g_printerr ("}\n");
+return FALSE;
 }
 
 int main (int argc, gchar* argv [])
