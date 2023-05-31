@@ -560,6 +560,7 @@ WebMessage* web_connection_step (WebConnection* web_connection, GError** error)
                         web_message_headers = web_message_get_headers (web_message);
 
                         web_message_set_http_version (web_message, io->parser.http_version);
+                        web_message_set_is_closure (web_message, FALSE);
                         web_message_set_method (web_message, io->parser.method);
                         web_message_set_uri (web_message, io->parser.uri);
 
@@ -586,6 +587,14 @@ WebMessage* web_connection_step (WebConnection* web_connection, GError** error)
 
                             web_message_headers_append_take (web_message_headers, name, value);
                             web_parser_field_free (field);
+                          }
+
+                        if (self->http_version < WEB_HTTP_VERSION_1_1)
+                          web_message_set_is_closure (web_message, TRUE);
+                        else
+                          {
+                            if (!web_message_headers_get_keep_alive (web_message_headers))
+                              web_message_set_is_closure (web_message, TRUE);
                           }
 
                         web_parser_clear (& io->parser);

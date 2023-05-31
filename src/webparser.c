@@ -369,7 +369,7 @@ void web_parser_feed (WebParser* self, const gchar* line, gsize length, GError**
 void web_parser_field_set_name (WebParserField* self, const gchar* name, gsize length)
 {
   _g_free0 (self->name);
-  self->name = g_strndup (name, length);
+  self->name = g_ascii_strdown (name, length);
 }
 
 void web_parser_field_add_value (WebParserField* self, const gchar* value, gsize length)

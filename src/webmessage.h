@@ -111,7 +111,8 @@ extern "C" {
   G_GNUC_INTERNAL const gchar* web_message_headers_get_content_type (WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL WebMessageEncoding web_message_headers_get_encoding (WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL WebMessageExpectation web_message_headers_get_expectations (WebMessageHeaders* web_message_headers);
-  G_GNUC_INTERNAL const gchar* web_message_headers_get_list (WebMessageHeaders* web_message_headers, const gchar* key);
+  G_GNUC_INTERNAL gboolean web_message_headers_get_keep_alive (WebMessageHeaders* web_message_headers);
+  G_GNUC_INTERNAL GList* web_message_headers_get_list (WebMessageHeaders* web_message_headers, const gchar* key);
   G_GNUC_INTERNAL const gchar* web_message_headers_get_one (WebMessageHeaders* web_message_headers, const gchar* key);
   G_GNUC_INTERNAL WebMessageRange* web_message_headers_get_ranges (WebMessageHeaders* web_message_headers, guint* n_ranges);
   G_GNUC_INTERNAL void web_message_headers_iter_init (WebMessageHeadersIter* iter, WebMessageHeaders* web_message_headers);

@@ -16,6 +16,7 @@
  */
 #include <config.h>
 #include <webmessage.h>
+#include <webmessagefields.h>
 
 struct _WebMessageHeaders
 {
@@ -146,12 +147,28 @@ WebMessageExpectation web_message_headers_get_expectations (WebMessageHeaders* w
 return WEB_MESSAGE_EXPECTATION_UNKNOWN;
 }
 
-const gchar* web_message_headers_get_list (WebMessageHeaders* web_message_headers, const gchar* key)
+gboolean web_message_headers_get_keep_alive (WebMessageHeaders* web_message_headers)
+{
+  g_return_val_if_fail (web_message_headers != NULL, 0);
+  WebMessageHeaders* self = (web_message_headers);
+
+  if (!web_message_headers_contains (self, WEB_MESSAGE_FIELD_CONNECTION))
+    return FALSE;
+  else
+    {
+      const gchar* a = "keep-alive";
+      const gchar* b = web_message_headers_get_one (self, WEB_MESSAGE_FIELD_CONNECTION);
+      return !g_ascii_strcasecmp (a, b);
+    }
+}
+
+GList* web_message_headers_get_list (WebMessageHeaders* web_message_headers, const gchar* key)
 {
   g_return_val_if_fail (web_message_headers != NULL, NULL);
   g_return_val_if_fail (key != NULL, NULL);
   WebMessageHeaders* self = (web_message_headers);
-return NULL;
+  GQueue* queue = g_hash_table_lookup (self->fields, key);
+return (queue == NULL) ? NULL : (g_queue_peek_head_link (queue));
 }
 
 const gchar* web_message_headers_get_one (WebMessageHeaders* web_message_headers, const gchar* key)
@@ -159,7 +176,8 @@ const gchar* web_message_headers_get_one (WebMessageHeaders* web_message_headers
   g_return_val_if_fail (web_message_headers != NULL, NULL);
   g_return_val_if_fail (key != NULL, NULL);
   WebMessageHeaders* self = (web_message_headers);
-return NULL;
+  GQueue* queue = g_hash_table_lookup (self->fields, key);
+return (queue == NULL) ? NULL : (g_queue_peek_head (queue));
 }
 
 WebMessageRange* web_message_headers_get_ranges (WebMessageHeaders* web_message_headers, guint* n_ranges)

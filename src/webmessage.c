@@ -296,6 +296,7 @@ void web_message_set_response_bytes (WebMessage* web_message, const gchar* conte
   WebMessagePrivate* priv = web_message->priv;
 
   web_message_body_add_bytes (priv->response_body, bytes);
+  web_message_body_set_content_length (priv->response_body, g_bytes_get_size (bytes));
   web_message_body_set_content_type (priv->response_body, content_type);
 }
 
@@ -305,6 +306,7 @@ void web_message_set_response_take (WebMessage* web_message, const gchar* conten
   WebMessagePrivate* priv = web_message->priv;
 
   web_message_body_add_data (priv->response_body, response, length, g_free);
+  web_message_body_set_content_length (priv->response_body, length);
   web_message_body_set_content_type (priv->response_body, content_type);
 }
 

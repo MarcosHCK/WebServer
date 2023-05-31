@@ -56,7 +56,7 @@ void web_message_body_add_bytes (WebMessageBody* web_message_body, GBytes* bytes
   else
     {
       g_set_object (&self->stream, g_memory_input_stream_new_from_bytes (bytes));
-      g_object_unref (&self->stream);
+      g_object_unref (self->stream);
     }
 }
 
@@ -71,7 +71,7 @@ void web_message_body_add_data (WebMessageBody* web_message_body, gpointer data,
   else
     {
       g_set_object (&self->stream, g_memory_input_stream_new_from_data (data, length, notify));
-      g_object_unref (&self->stream);
+      g_object_unref (self->stream);
     }
 }
 

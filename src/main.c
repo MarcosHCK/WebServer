@@ -16,33 +16,105 @@
  */
 #include <config.h>
 #include <webmessage.h>
+#include <webmessagemethods.h>
 #include <webserver.h>
 
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
 
-static void on_activate (WebServer* web_server, GApplication* application)
+struct _AppServer
 {
+  GApplication parent;
+
+  /* private */
+  GHashTable* servers;
+  GThreadPool* thread_pool;
+};
+
+struct _AppRequest
+{
+  GFile* serve_folder;
+  guint upload : 1;
+  WebMessage* web_message;
+};
+
+G_DECLARE_FINAL_TYPE (AppServer, app_server, APP, SERVER, GApplication);
+G_DEFINE_FINAL_TYPE (AppServer, app_server, G_TYPE_APPLICATION);
+
+static void app_server_class_activate (GApplication* pself)
+{
+  AppServer* self = (gpointer) pself;
+
   GFile* defaults [] =
     {
       g_file_new_for_commandline_arg ("8080"),
       g_file_new_for_commandline_arg ("/var/www"),
     };
 
-  const guint n_defaults = G_N_ELEMENTS (defaults);
-
-  g_application_open (application, defaults, n_defaults, NULL);
+  g_application_open (pself, defaults, G_N_ELEMENTS (defaults), NULL);
 
   g_object_unref (defaults [1]);
   g_object_unref (defaults [0]);
 }
 
-static void on_open (WebServer* web_server, GFile** files, gint n_files)
+static void app_server_class_dispose (GObject* pself)
 {
+  AppServer* self = (gpointer) pself;
+  g_hash_table_remove_all (self->servers);
+G_OBJECT_CLASS (app_server_parent_class)->dispose (pself);
+}
+
+static void app_server_class_finalize (GObject* pself)
+{
+  AppServer* self = (gpointer) pself;
+  g_thread_pool_free (self->thread_pool, TRUE, TRUE);
+  g_hash_table_unref (self->servers);
+G_OBJECT_CLASS (app_server_parent_class)->finalize (pself);
+}
+
+static void on_got_failure (WebServer* web_server, GError* tmperr, AppServer* self)
+{
+  const guint code = tmperr->code;
+  const gchar* domain = g_quark_to_string (tmperr->domain);
+  const gchar* message = tmperr->message;
+
+  g_warning ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
+}
+
+static gboolean on_got_request (WebServer* web_server, WebMessage* web_message, AppServer* self)
+{
+  struct _AppRequest* request = NULL;
+  const gchar* method = NULL;
+  gboolean normal = TRUE;
+  gboolean upload = TRUE;
+
+  method = web_message_get_method (web_message);
+
+  if ((normal = g_str_equal (method, WEB_MESSAGE_METHOD_GET))
+   || (normal = g_str_equal (method, WEB_MESSAGE_METHOD_POST))
+   || (upload = g_str_equal (method, WEB_MESSAGE_METHOD_HEAD)))
+    {
+      request = g_slice_new (struct _AppRequest);
+      request->upload = upload;
+      request->serve_folder = g_hash_table_lookup (self->servers, web_server);
+      request->web_message = g_object_ref (web_message);
+
+      g_assert (request->serve_folder != NULL);
+
+      web_message_freeze (web_message);
+      g_thread_pool_push (self->thread_pool, request, NULL);
+    }
+return request != NULL;
+}
+
+static void app_server_class_open (GApplication* pself, GFile** files, gint n_files, const gchar* hint)
+{
+  AppServer* self = (gpointer) pself;
+  WebServer* web_server = NULL;
   GFile* current = g_file_new_for_path (".");
   GFile* subst = g_file_new_for_path ("/var/www");
   GError* tmperr = NULL;
   guint64 port_u64;
-  guint i;
+  gint i;
 
   for (i = 0; i < n_files; i += 2)
     {
@@ -50,6 +122,8 @@ static void on_open (WebServer* web_server, GFile** files, gint n_files)
       GFile* home = ((i + 1) < n_files) ? files [(i + 1)] : subst;
       gchar* port_name = g_file_get_relative_path (current, port);
       guint64 port_number = 8080;
+
+      web_server = web_server_new ();
 
       if ((g_ascii_string_to_unsigned (port_name, 10, 0, G_MAXUINT16, &port_u64, &tmperr)), G_UNLIKELY (tmperr == NULL))
         port_number = (guint16) port_u64;
@@ -64,84 +138,80 @@ static void on_open (WebServer* web_server, GFile** files, gint n_files)
           g_warning ("%s", tmperr->message);
           g_error_free (tmperr);
         }
+
+      g_signal_connect (web_server, "got-failure", G_CALLBACK (on_got_failure), self);
+      g_signal_connect (web_server, "got-request", G_CALLBACK (on_got_request), self);
+      g_hash_table_insert (self->servers, web_server, g_object_ref (home));
     }
 
   _g_object_unref0 (current);
   _g_object_unref0 (subst);
 }
 
-static void on_got_failure (WebServer* web_server, GError* tmperr)
+static void app_server_class_init (AppServerClass* klass)
 {
-  const guint code = tmperr->code;
-  const gchar* domain = g_quark_to_string (tmperr->domain);
-  const gchar* message = tmperr->message;
-
-  g_warning ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
+  G_APPLICATION_CLASS (klass)->activate = app_server_class_activate;
+  G_OBJECT_CLASS (klass)->dispose = app_server_class_dispose;
+  G_OBJECT_CLASS (klass)->finalize = app_server_class_finalize;
+  G_APPLICATION_CLASS (klass)->open = app_server_class_open;
 }
 
-static gboolean on_got_request (WebServer* web_server, WebMessage* web_message)
+static void process (struct _AppRequest* request, AppServer* server)
 {
-  WebMessageHeaders* headers = NULL;
-  WebMessageHeadersIter iter = {0};
-  const gchar* key = NULL;
-  const gchar* method = NULL;
-  const gchar* path = NULL;
-  GList* values = NULL;
-  const gchar* version = NULL;
-
-  headers = web_message_get_headers (web_message);
-  method = web_message_get_method (web_message);
-  path = g_uri_get_path (web_message_get_uri (web_message));
-  version = web_http_version_to_string (web_message_get_http_version (web_message));
-
-  g_printerr ("frame {\n");
-  g_printerr ("  method: '%s';\n", method);
-  g_printerr ("  path: '%s';\n", path);
-  g_printerr ("  version: '%s';\n", version);
-  g_printerr ("  fields {\n");
-
-  web_message_headers_iter_init (&iter, headers);
-
-  while (web_message_headers_iter_next (&iter, &key, &values))
+  static const gchar http [] =
     {
-      GList* list = NULL;
+      "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n"
+      "<html xmlns=\"http://www.w3.org/1999/xhtml\">\n"
+      "<head>\n"
+      "  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />"
+      "  <title>Apache2 Debian Default Page: It works</title>"
+      "</head>\n"
+      "<body>\n"
+      "  <p>It works!</p>\n"
+      "</body>\n"
+    };
 
-      g_printerr ("    name: '%s', value: '", key);
+  GBytes* bytes = g_bytes_new_static (http, G_N_ELEMENTS (http) - 1);
+  web_message_set_response_bytes (request->web_message, "text/html", bytes);
+  g_bytes_unref (bytes);
+  web_message_set_status (request->web_message, WEB_STATUS_CODE_OK);
+  web_message_thaw (request->web_message);
+}
 
-      for (list = values; list; list = list->next)
-        {
-          if (list == values)
-            g_printerr ("%s", (gchar*) list->data);
-          else
-            g_printerr (",%s", (gchar*) list->data);
-        }
-      g_printerr ("'\n");
-    }
+static void request_free (struct _AppRequest* request)
+{
+  g_object_unref (request->serve_folder);
+  g_object_unref (request->web_message);
+  g_slice_free (struct _AppRequest, request);
+}
 
-  g_printerr ("  }\n");
-  g_printerr ("}\n");
-return FALSE;
+static void app_server_init (AppServer* self)
+{
+  GHashFunc func1 = (GHashFunc) g_direct_hash;
+  GEqualFunc func2 = (GEqualFunc) g_direct_equal;
+  GFunc func3 = (GFunc) process;
+  GDestroyNotify notify1 = (GDestroyNotify) g_object_unref;
+  GDestroyNotify notify2 = (GDestroyNotify) request_free;
+  guint max_threads = g_get_num_processors ();
+
+  self->servers = g_hash_table_new_full (func1, func2, notify1, notify1);
+  self->thread_pool = g_thread_pool_new_full (func3, self, notify2, max_threads, 0, NULL);
 }
 
 int main (int argc, gchar* argv [])
 {
-  guint exit_code = 0;
   GApplication* application;
-  WebServer* web_server;
+  guint exit_code;
 
   const GClosureNotify notify = (GClosureNotify) g_object_unref;
   const GConnectFlags flags = (GConnectFlags) G_CONNECT_SWAPPED;
 
-  application = g_application_new ("org.hck.webserver", G_APPLICATION_HANDLES_OPEN);
-  web_server = web_server_new ();
+  application = g_object_new (app_server_get_type (),
+                              "application-id", "org.hck.webserver",
+                                       "flags", G_APPLICATION_HANDLES_OPEN,
+                                          NULL);
 
-  g_application_hold (application);
-  g_signal_connect (web_server, "got-failure", G_CALLBACK (on_got_failure), NULL);
-  g_signal_connect (web_server, "got-request", G_CALLBACK (on_got_request), NULL);
-  g_signal_connect_data (application, "activate", G_CALLBACK (on_activate), g_object_ref (web_server), notify, flags);
-  g_signal_connect_data (application, "open", G_CALLBACK (on_open), g_object_ref (web_server), notify, flags);
-  g_object_unref (web_server);
-
-  exit_code = g_application_run (application, argc, argv);
+  exit_code = (g_application_hold (application), 0);
+  exit_code = (g_application_run (application, argc, argv));
 return (g_object_unref (application), exit_code);
 }
