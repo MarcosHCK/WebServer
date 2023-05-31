@@ -25,6 +25,7 @@ VOID=
 bin_PROGRAMS=webserver
 
 noinst_HEADERS=\
+	appprocess.h \
 	webconnection.h \
 	webendpoint.h \
 	webhttpversion.h \
@@ -42,8 +43,10 @@ noinst_HEADERS=\
 #
 
 webserver_SOURCES=\
-	main.c \
+	appprocess.c \
+	appserver.c \
 	marshals.c \
+	resources.c \
 	webconnection.c \
 	webendpoint.c \
 	webhttpversion.c \
@@ -68,14 +71,18 @@ webserver.c: marshals.h
 
 #
 # Extensions
+# - .list -> .c .h
+# - .resources.xml -> .c
 # - .stringlist -> .c
 #
 
-SUFFIXES=.list .stringlist .c .h
+SUFFIXES=.list .resources.xml .stringlist .c .h
 
 .list.c:
 	$(GLIB_GENMARSHAL) --output $@ --prefix="web_cclosure_marshal" --include-header "config.h" --valist-marshallers --internal --prototypes --body $<
 .list.h:
 	$(GLIB_GENMARSHAL) --output $@ --prefix="web_cclosure_marshal" --include-header "config.h" --valist-marshallers --internal --prototypes --header $<
+.resources.xml.c:
+	$(GLIB_COMPILE_RESOURCES) --target=$@ --internal -C $(CC) --generate $<
 .stringlist.c:
 	$(GPERF) --output-file $@ $<

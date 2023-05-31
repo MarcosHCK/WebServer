@@ -26,6 +26,7 @@
 .dirstamp
 
 marshals.[ch]
+resources.[ch]
 
 webserver*
 !webserver.[ch]

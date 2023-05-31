@@ -123,6 +123,8 @@ AC_PROG_RANLIB
 
 PKG_PROG_PKG_CONFIG
 
+AC_CHECK_PROG([GLIB_COMPILE_RESOURCES], [glib-compile-resources], [glib-compile-resources], [no])
+AS_IF([test "x$GLIB_COMPILE_RESOURCES" = "xno"], [AC_MSG_FAILURE([glib-compile-resources not found our your system])])
 AC_CHECK_PROG([GLIB_GENMARSHAL], [glib-genmarshal], [glib-genmarshal], [no])
 AS_IF([test "x$GLIB_GENMARSHAL" = "xno"], [AC_MSG_FAILURE([glib-genmarshal not found our your system])])
 AC_CHECK_PROG([GPERF], [gperf], [gperf], [no])

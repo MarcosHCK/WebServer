@@ -15,6 +15,7 @@
  * along with WebServer. If not, see <http://www.gnu.org/licenses/>.
  */
 #include <config.h>
+#include <appprocess.h>
 #include <webmessage.h>
 #include <webmessagemethods.h>
 #include <webserver.h>
@@ -28,13 +29,6 @@ struct _AppServer
   /* private */
   GHashTable* servers;
   GThreadPool* thread_pool;
-};
-
-struct _AppRequest
-{
-  GFile* serve_folder;
-  guint upload : 1;
-  WebMessage* web_message;
 };
 
 G_DECLARE_FINAL_TYPE (AppServer, app_server, APP, SERVER, GApplication);
@@ -94,11 +88,11 @@ static gboolean on_got_request (WebServer* web_server, WebMessage* web_message, 
    || (upload = g_str_equal (method, WEB_MESSAGE_METHOD_HEAD)))
     {
       request = g_slice_new (struct _AppRequest);
+      request->root = g_hash_table_lookup (self->servers, web_server);
       request->upload = upload;
-      request->serve_folder = g_hash_table_lookup (self->servers, web_server);
       request->web_message = g_object_ref (web_message);
 
-      g_assert (request->serve_folder != NULL);
+      g_assert (request->root != NULL);
 
       web_message_freeze (web_message);
       g_thread_pool_push (self->thread_pool, request, NULL);
@@ -156,31 +150,9 @@ static void app_server_class_init (AppServerClass* klass)
   G_APPLICATION_CLASS (klass)->open = app_server_class_open;
 }
 
-static void process (struct _AppRequest* request, AppServer* server)
-{
-  static const gchar http [] =
-    {
-      "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n"
-      "<html xmlns=\"http://www.w3.org/1999/xhtml\">\n"
-      "<head>\n"
-      "  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />"
-      "  <title>Apache2 Debian Default Page: It works</title>"
-      "</head>\n"
-      "<body>\n"
-      "  <p>It works!</p>\n"
-      "</body>\n"
-    };
-
-  GBytes* bytes = g_bytes_new_static (http, G_N_ELEMENTS (http) - 1);
-  web_message_set_response_bytes (request->web_message, "text/html", bytes);
-  g_bytes_unref (bytes);
-  web_message_set_status (request->web_message, WEB_STATUS_CODE_OK);
-  web_message_thaw (request->web_message);
-}
-
 static void request_free (struct _AppRequest* request)
 {
-  g_object_unref (request->serve_folder);
+  g_object_unref (request->root);
   g_object_unref (request->web_message);
   g_slice_free (struct _AppRequest, request);
 }
@@ -189,7 +161,7 @@ static void app_server_init (AppServer* self)
 {
   GHashFunc func1 = (GHashFunc) g_direct_hash;
   GEqualFunc func2 = (GEqualFunc) g_direct_equal;
-  GFunc func3 = (GFunc) process;
+  GFunc func3 = (GFunc) _app_server_process;
   GDestroyNotify notify1 = (GDestroyNotify) g_object_unref;
   GDestroyNotify notify2 = (GDestroyNotify) request_free;
   guint max_threads = g_get_num_processors ();
