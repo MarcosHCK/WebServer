@@ -25,7 +25,7 @@ VOID=
 bin_PROGRAMS=webserver
 
 noinst_HEADERS=\
-	appprocess.h \
+	appprivate.h \
 	webconnection.h \
 	webendpoint.h \
 	webhttpversion.h \
@@ -44,9 +44,9 @@ noinst_HEADERS=\
 
 webserver_SOURCES=\
 	appprocess.c \
+	appresource.c \
 	appserver.c \
 	marshals.c \
-	resources.c \
 	webconnection.c \
 	webendpoint.c \
 	webhttpversion.c \
@@ -63,6 +63,9 @@ webserver_CFLAGS=-flto \
 	$(GIO_CFLAGS)
 webserver_LDFLAGS=-flto
 webserver_LDADD=$(GIO_LIBS)
+
+appresource.c: body.html
+appresource.c: item.html
 
 webconnection.c: marshals.h
 webendpoint.c: marshals.h

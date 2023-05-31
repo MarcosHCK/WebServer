@@ -18,21 +18,11 @@
 #define __APP_PROCESS__ 1
 #include <webmessage.h>
 
-typedef struct _AppRequest AppRequest;
-typedef struct _AppServer AppServer;
-
 #if __cplusplus
 extern "C" {
 #endif // __cplusplus
 
-  struct _AppRequest
-  {
-    GFile* root;
-    guint upload : 1;
-    WebMessage* web_message;
-  };
-
-  G_GNUC_INTERNAL void _app_server_process (AppRequest* request, AppServer* server);
+  G_GNUC_INTERNAL void _app_server_process (WebMessage* message, GFile* root, GError** error);
 
 #if __cplusplus
 }

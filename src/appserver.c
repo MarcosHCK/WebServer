@@ -15,7 +15,7 @@
  * along with WebServer. If not, see <http://www.gnu.org/licenses/>.
  */
 #include <config.h>
-#include <appprocess.h>
+#include <appprivate.h>
 #include <webmessage.h>
 #include <webmessagemethods.h>
 #include <webserver.h>
@@ -29,6 +29,13 @@ struct _AppServer
   /* private */
   GHashTable* servers;
   GThreadPool* thread_pool;
+};
+
+struct _AppRequest
+{
+  GFile* root;
+  guint upload : 1;
+  WebMessage* web_message;
 };
 
 G_DECLARE_FINAL_TYPE (AppServer, app_server, APP, SERVER, GApplication);
@@ -150,6 +157,29 @@ static void app_server_class_init (AppServerClass* klass)
   G_APPLICATION_CLASS (klass)->open = app_server_class_open;
 }
 
+static void request_proc (struct _AppRequest* request)
+{
+  GError* tmperr = NULL;
+  GFile* root = request->root;
+  WebMessage* message = request->web_message;
+
+  if ((_app_server_process (message, root, &tmperr)), G_UNLIKELY (tmperr == NULL))
+    web_message_thaw (message);
+  else
+    {
+      web_message_set_status (message, WEB_STATUS_CODE_INTERNAL_SERVER_ERROR);
+      web_message_set_is_closure (message, TRUE);
+      web_message_thaw (message);
+
+      const guint code = tmperr->code;
+      const gchar* domain = g_quark_to_string (tmperr->domain);
+      const gchar* message = tmperr->message;
+
+      g_warning ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
+      g_error_free (tmperr);
+    }
+}
+
 static void request_free (struct _AppRequest* request)
 {
   g_object_unref (request->root);
@@ -161,7 +191,7 @@ static void app_server_init (AppServer* self)
 {
   GHashFunc func1 = (GHashFunc) g_direct_hash;
   GEqualFunc func2 = (GEqualFunc) g_direct_equal;
-  GFunc func3 = (GFunc) _app_server_process;
+  GFunc func3 = (GFunc) request_proc;
   GDestroyNotify notify1 = (GDestroyNotify) g_object_unref;
   GDestroyNotify notify2 = (GDestroyNotify) request_free;
   guint max_threads = g_get_num_processors ();

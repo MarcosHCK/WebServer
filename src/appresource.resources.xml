@@ -20,10 +20,9 @@ along with WebServer. If not, see <http://www.gnu.org/licenses/>.
 
   <gresource prefix="/org/hck/webserver/">
 
-    <!-- Strings -->
-    <file>pageheader.fmt</file>
-    <file>pagefooter.fmt</file>
-    <file>pageitem.fmt</file>
+    <!-- Page sections -->
+    <file>body.html</file>
+    <file>item.html</file>
 
   </gresource>
 
