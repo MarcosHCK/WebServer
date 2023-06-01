@@ -163,7 +163,7 @@ static void request_proc (struct _AppRequest* request)
   GFile* root = request->root;
   WebMessage* message = request->web_message;
 
-  if ((_app_server_process (message, root, &tmperr)), G_UNLIKELY (tmperr == NULL))
+  if ((_app_process (message, root, &tmperr)), G_UNLIKELY (tmperr == NULL))
     web_message_thaw (message);
   else
     {

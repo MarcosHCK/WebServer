@@ -46,6 +46,7 @@ webserver_SOURCES=\
 	appprocess.c \
 	appresource.c \
 	appserver.c \
+	appstream.c \
 	marshals.c \
 	webconnection.c \
 	webendpoint.c \

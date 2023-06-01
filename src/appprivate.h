@@ -22,7 +22,8 @@
 extern "C" {
 #endif // __cplusplus
 
-  G_GNUC_INTERNAL void _app_server_process (WebMessage* message, GFile* root, GError** error);
+  G_GNUC_INTERNAL GInputStream* _app_stream_new (GInputStream* base_stream);
+  G_GNUC_INTERNAL void _app_process (WebMessage* message, GFile* root, GError** error);
 
 #if __cplusplus
 }

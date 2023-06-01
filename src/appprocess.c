@@ -298,7 +298,7 @@ return replace_info (info, buffer, G_STRUCT_MEMBER (gpointer, data, G_STRUCT_OFF
 return FALSE;
 }
 
-void _app_server_process (WebMessage* message, GFile* root, GError** error)
+void _app_process (WebMessage* message, GFile* root, GError** error)
 {
   static const gchar* attr = G_FILE_ATTRIBUTE_ETAG_VALUE ","
                              G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE ","
@@ -338,6 +338,7 @@ void _app_server_process (WebMessage* message, GFile* root, GError** error)
           case G_FILE_TYPE_REGULAR:
             {
               GFileInputStream* stream = NULL;
+              GInputStream* stream2 = NULL;
               WebMessageBody* body = NULL;
 
               body = web_message_get_response (message);
@@ -347,11 +348,15 @@ void _app_server_process (WebMessage* message, GFile* root, GError** error)
                 g_propagate_error (error, (_g_object_unref0 (stream), tmperr));
               else
                 {
+                  stream2 = G_INPUT_STREAM (stream);
+                  stream2 = _app_stream_new (stream2);
+                  _g_object_unref0 (stream);
+
                   web_message_set_status (message, WEB_STATUS_CODE_OK);
                   web_message_body_set_content_length (body, g_file_info_get_size (info));
                   web_message_body_set_content_type (body, g_file_info_get_content_type (info));
-                  web_message_body_set_stream (body, G_INPUT_STREAM (stream));
-                  _g_object_unref0 (stream);
+                  web_message_body_set_stream (body, stream2);
+                  _g_object_unref0 (stream2);
                 }
               break;
             }
