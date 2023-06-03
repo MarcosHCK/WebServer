@@ -51,8 +51,8 @@ extern "C" {
 
   struct _WebMessageRange
   {
-    goffset start;
-    goffset length;
+    goffset begin_offset;
+    goffset end_offset;
   };
 
   struct _WebMessageHeadersIter
@@ -103,8 +103,8 @@ extern "C" {
   G_GNUC_INTERNAL WebMessageBody* web_message_get_response (WebMessage* web_message);
   G_GNUC_INTERNAL WebStatusCode web_message_get_status (WebMessage* web_message);
   G_GNUC_INTERNAL GUri* web_message_get_uri (WebMessage* web_message);
-  G_GNUC_INTERNAL void web_message_headers_append (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value);
-  G_GNUC_INTERNAL void web_message_headers_append_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value);
+  G_GNUC_INTERNAL void web_message_headers_append (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value, GError** error);
+  G_GNUC_INTERNAL void web_message_headers_append_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value, GError** error);
   G_GNUC_INTERNAL void web_message_headers_clear (WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL gboolean web_message_headers_contains (WebMessageHeaders* web_message_headers, const gchar* key);
   G_GNUC_INTERNAL goffset web_message_headers_get_content_length (WebMessageHeaders* web_message_headers);
@@ -114,12 +114,12 @@ extern "C" {
   G_GNUC_INTERNAL gboolean web_message_headers_get_keep_alive (WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL GList* web_message_headers_get_list (WebMessageHeaders* web_message_headers, const gchar* key);
   G_GNUC_INTERNAL const gchar* web_message_headers_get_one (WebMessageHeaders* web_message_headers, const gchar* key);
-  G_GNUC_INTERNAL WebMessageRange* web_message_headers_get_ranges (WebMessageHeaders* web_message_headers, guint* n_ranges);
+  G_GNUC_INTERNAL GList* web_message_headers_get_ranges (WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL void web_message_headers_iter_init (WebMessageHeadersIter* iter, WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL gboolean web_message_headers_iter_next (WebMessageHeadersIter* iter, gchar const** key, GList** values);
   G_GNUC_INTERNAL void web_message_headers_remove (WebMessageHeaders* web_message_headers, const gchar* key);
-  G_GNUC_INTERNAL void web_message_headers_replace (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value);
-  G_GNUC_INTERNAL void web_message_headers_replace_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value);
+  G_GNUC_INTERNAL void web_message_headers_replace (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value, GError** error);
+  G_GNUC_INTERNAL void web_message_headers_replace_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value, GError** error);
   G_GNUC_INTERNAL void web_message_set_http_version (WebMessage* web_message, WebHttpVersion http_version);
   G_GNUC_INTERNAL void web_message_set_is_closure (WebMessage* web_message, gboolean is_closure);
   G_GNUC_INTERNAL void web_message_set_method (WebMessage* web_message, const gchar* method);

@@ -17,12 +17,8 @@
 #include <config.h>
 #include <webmessage.h>
 #include <webmessagefields.h>
-
-struct _WebMessageHeaders
-{
-  GHashTable* fields;
-  GQueue taken;
-};
+#include <webmessageheaderparse.h>
+#include <webmessagemethods.h>
 
 static gpointer nullfunc (gpointer ptr)
 {
@@ -30,6 +26,11 @@ static gpointer nullfunc (gpointer ptr)
 }
 
 G_DEFINE_BOXED_TYPE (WebMessageHeaders, web_message_headers, nullfunc, web_message_headers_free);
+
+void _web_message_range_free (WebMessageRange* range)
+{
+  g_slice_free (WebMessageRange, range);
+}
 
 WebMessageHeaders* web_message_headers_new ()
 {
@@ -50,57 +51,26 @@ void web_message_headers_free (WebMessageHeaders* web_message_headers)
 
   g_hash_table_remove_all (self->fields);
   g_hash_table_unref (self->fields);
-  g_queue_clear_full (& self->taken, g_free);
+  g_queue_clear_full (& self->ranges, (GDestroyNotify) _web_message_range_free);
+  g_queue_clear_full (& self->taken, (GDestroyNotify) g_free);
 }
 
-void web_message_headers_append (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value)
+void web_message_headers_append (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value, GError** error)
 {
   g_return_if_fail (web_message_headers != NULL);
   g_return_if_fail (key != NULL && value != NULL);
   WebMessageHeaders* self = (web_message_headers);
 
-  web_message_headers_append_take (self, g_strdup (key), g_strdup (value));
+  web_message_headers_append_take (self, g_strdup (key), g_strdup (value), error);
 }
 
-static void append_values (GQueue* list, gchar* value)
-{
-  gsize length = strlen (value);
-  gsize i;
-
-  g_queue_push_tail (list, value);
-
-  for (i = 0; i < length; ++i)
-  if (value [i] == ',')
-    {
-      value [i] = 0;
-
-      if (i < length)
-      {
-        g_queue_push_tail (list, & value [i + 1]);
-      }
-    }
-}
-
-void web_message_headers_append_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value)
+void web_message_headers_append_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value, GError** error)
 {
   g_return_if_fail (web_message_headers != NULL);
   g_return_if_fail (key != NULL && value != NULL);
   WebMessageHeaders* self = (web_message_headers);
-  GQueue* list = NULL;
 
-  if ((list = g_hash_table_lookup (self->fields, key)) != NULL)
-    {
-      append_values (list, value);
-      g_queue_push_tail (& self->taken, value);
-    }
-  else
-    {
-      list = g_queue_new ();
-
-      append_values (list, value);
-      g_queue_push_tail (& self->taken, value);
-      g_hash_table_insert (self->fields, key, list);
-    }
+  _web_message_headers_parse_header (self, key, value, error);
 }
 
 void web_message_headers_clear (WebMessageHeaders* web_message_headers)
@@ -180,11 +150,11 @@ const gchar* web_message_headers_get_one (WebMessageHeaders* web_message_headers
 return (queue == NULL) ? NULL : (g_queue_peek_head (queue));
 }
 
-WebMessageRange* web_message_headers_get_ranges (WebMessageHeaders* web_message_headers, guint* n_ranges)
+GList* web_message_headers_get_ranges (WebMessageHeaders* web_message_headers)
 {
   g_return_val_if_fail (web_message_headers != NULL, 0);
   WebMessageHeaders* self = (web_message_headers);
-return NULL;
+return g_queue_peek_head_link (& self->ranges);
 }
 
 void web_message_headers_iter_init (WebMessageHeadersIter* iter, WebMessageHeaders* web_message_headers)
@@ -221,21 +191,21 @@ void web_message_headers_remove (WebMessageHeaders* web_message_headers, const g
   g_hash_table_remove (self->fields, key);
 }
 
-void web_message_headers_replace (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value)
+void web_message_headers_replace (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value, GError** error)
 {
   g_return_if_fail (web_message_headers != NULL);
   g_return_if_fail (key != NULL && value != NULL);
   WebMessageHeaders* self = (web_message_headers);
 
-  web_message_headers_replace_take (self, g_strdup (key), g_strdup (value));
+  web_message_headers_replace_take (self, g_strdup (key), g_strdup (value), error);
 }
 
-void web_message_headers_replace_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value)
+void web_message_headers_replace_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value, GError** error)
 {
   g_return_if_fail (web_message_headers != NULL);
   g_return_if_fail (key != NULL && value != NULL);
   WebMessageHeaders* self = (web_message_headers);
 
   web_message_headers_remove (self, key);
-  web_message_headers_append_take (self, key, value);
+  web_message_headers_append_take (self, key, value, error);
 }

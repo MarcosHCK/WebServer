@@ -19,9 +19,12 @@
 #include <glib/gi18n.h>
 #include <gio/gio.h>
 
-static void app_stream_g_pollable_input_stream_iface (GPollableInputStreamInterface* iface);
+typedef struct _Range Range;
 #define _g_error_free0(var) ((var == NULL) ? NULL : (var = (g_error_free (var), NULL)))
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
+static void app_stream_g_pollable_input_stream_iface (GPollableInputStreamInterface* iface);
+static void app_ranged_stream_g_pollable_input_stream_iface (GPollableInputStreamInterface* iface);
+static const guint blocksz = 2048;
 
 struct _AppStream
 {
@@ -34,19 +37,9 @@ struct _AppStream
   gint fill_pending;
 };
 
-enum
-{
-  prop_0,
-  prop_base_stream,
-  prop_number,
-};
-
 G_DECLARE_FINAL_TYPE (AppStream, app_stream, APP, STREAM, GBufferedInputStream);
-G_DEFINE_FINAL_TYPE_WITH_CODE (AppStream, app_stream, G_TYPE_BUFFERED_INPUT_STREAM,
+G_DEFINE_TYPE_WITH_CODE (AppStream, app_stream, G_TYPE_BUFFERED_INPUT_STREAM,
   G_IMPLEMENT_INTERFACE (G_TYPE_POLLABLE_INPUT_STREAM, app_stream_g_pollable_input_stream_iface));
-
-static const guint blocksz = 1024;
-static GParamSpec* properties [prop_number] = {0};
 
 static void ready (GObject* pself, GAsyncResult* result, gpointer user_data)
 {

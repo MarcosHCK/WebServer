@@ -54,6 +54,7 @@ webserver_SOURCES=\
 	weblistenoptions.c \
 	webmessage.c \
 	webmessagebody.c \
+	webmessageheaderparse.c \
 	webmessageheaders.c \
 	webparser.c \
 	webserver.c \

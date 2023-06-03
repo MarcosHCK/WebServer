@@ -216,13 +216,15 @@ static guint parse_http_version_bit (const gchar* line, gsize length, gsize offs
 return (_g_free0 (dynbuf), (guint) n);
 }
 
+G_STATIC_ASSERT (sizeof (WEB_MESSAGE_METHOD_HEAD) == 5);
+
 static const gchar* parse_method (const gchar* line, gsize length, gsize offset, GError** error)
 {
-  if (!g_ascii_strncasecmp (WEB_MESSAGE_METHOD_GET, & G_STRUCT_MEMBER (gchar, line, offset), length - offset))
+  if ((length - offset) == (sizeof (WEB_MESSAGE_METHOD_GET) - 1) && g_ascii_strncasecmp (WEB_MESSAGE_METHOD_GET, line + offset, length - offset) == 0)
     return WEB_MESSAGE_METHOD_GET;
-  else if (!g_ascii_strncasecmp (WEB_MESSAGE_METHOD_HEAD, & G_STRUCT_MEMBER (gchar, line, offset), length - offset))
+  else if ((length - offset) == (sizeof (WEB_MESSAGE_METHOD_HEAD) - 1) && g_ascii_strncasecmp (WEB_MESSAGE_METHOD_HEAD, line + offset, length - offset) == 0)
     return WEB_MESSAGE_METHOD_HEAD;
-  else if (!g_ascii_strncasecmp (WEB_MESSAGE_METHOD_POST, & G_STRUCT_MEMBER (gchar, line, offset), length - offset))
+  else if ((length - offset) == (sizeof (WEB_MESSAGE_METHOD_POST) - 1) && g_ascii_strncasecmp (WEB_MESSAGE_METHOD_POST, line + offset, length - offset) == 0)
     return WEB_MESSAGE_METHOD_POST;
   else
     {

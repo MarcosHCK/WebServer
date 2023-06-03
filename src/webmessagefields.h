@@ -24,6 +24,7 @@
 #define WEB_MESSAGE_FIELD_CONTENT_ENCODING ("content-encoding")
 #define WEB_MESSAGE_FIELD_CONTENT_LENGTH ("content-length")
 #define WEB_MESSAGE_FIELD_HOST ("host")
+#define WEB_MESSAGE_FIELD_RANGE ("range")
 #define WEB_MESSAGE_FIELD_USER_AGENT ("user-agent")
 
 #endif // __WEB_MESSAGE_FIELDS__

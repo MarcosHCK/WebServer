@@ -32,6 +32,8 @@ G_GNUC_INTERNAL guint _web_message_get_freeze_count (WebMessage* web_message);
 #define _g_error_free0(var) ((var == NULL) ? NULL : (var = (g_error_free (var), NULL)))
 #define _g_free0(var) ((var == NULL) ? NULL : (var = (g_free (var), NULL)))
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
+typedef struct _Frame Frame;
+typedef struct _Range Range;
 
 struct _WebConnection
 {
@@ -65,6 +67,7 @@ struct _WebConnection
     gsize length;
     GMutex lock;
     GQueue queue;
+    GQueue ranges;
     guint seqidn;
     guint seqidp;
     GPollableInputStream* splice;
@@ -86,6 +89,12 @@ struct _Frame
   };
 
   WebMessage* web_message;
+};
+
+struct _Range
+{
+  goffset offset;
+  goffset length;
 };
 
 enum
@@ -130,6 +139,28 @@ static void frame_free (gpointer ptr)
   g_slice_free (struct _Frame, frame);
 }
 
+static int range_cmp (gconstpointer a_, gconstpointer b_, gpointer u)
+{
+  gsize a = G_STRUCT_MEMBER (gsize, a_, G_STRUCT_OFFSET (Range, offset));
+  gsize b = G_STRUCT_MEMBER (gsize, b_, G_STRUCT_OFFSET (Range, offset));
+
+  if (a < b)
+    return -1;
+  else if (a > b)
+    return 1;
+  else
+    {
+      gsize x = G_STRUCT_MEMBER (gsize, a_, G_STRUCT_OFFSET (Range, length));
+      gsize z = G_STRUCT_MEMBER (gsize, b_, G_STRUCT_OFFSET (Range, length));
+      return (x < z) ? -1 : ((x == z) ? 0 : 1);
+    }
+}
+
+static void range_free (gpointer ptr)
+{
+  g_slice_free (Range, ptr);
+}
+
 static void web_connection_class_dispose (GObject* pself)
 {
   WebConnection* self = (gpointer) pself;
@@ -138,6 +169,7 @@ static void web_connection_class_dispose (GObject* pself)
   g_mutex_clear (& self->out.lock);
   _g_object_unref0 (self->out.splice);
   g_queue_clear_full (& self->out.queue, frame_free);
+  g_queue_clear_full (& self->out.ranges, range_free);
   _g_object_unref0 (self->output_stream);
   _g_object_unref0 (self->socket);
   _g_object_unref0 (self->socket_connection);
@@ -336,6 +368,8 @@ static void serialize (struct _OutputIO* io, WebMessage* web_message)
   is_closure = web_message_get_is_closure (web_message);
   status_code = web_message_get_status (web_message);
 
+  io->is_closure = is_closure;
+
   printout (io, "HTTP/%s", web_http_version_to_string (http_version));
   printout (io, " %i %s", status_code, web_status_code_get_inline (status_code));
   printout (io, "\r\n");
@@ -425,8 +459,6 @@ static GIOStatus process_out (struct _OutputIO* io, GPollableOutputStream* strea
           else
             {
               io->seqidp = frame->seqid;
-              io->is_closure = web_message_get_is_closure (frame->web_message);
-
               g_queue_pop_head (& io->queue);
               g_mutex_unlock (& io->lock);
               serialize (io, frame->web_message);
@@ -539,7 +571,7 @@ WebMessage* web_connection_step (WebConnection* web_connection, GError** error)
 
                     case G_IO_STATUS_NORMAL:
                       {
-                        struct _InputIO* io = G_STRUCT_MEMBER_P (self, G_STRUCT_OFFSET (WebConnection, in));
+                        struct _InputIO* io = & self->in;
                         WebParserField* field = NULL;
 
                         if (self->http_version == WEB_HTTP_VERSION_NONE)
@@ -585,16 +617,27 @@ WebMessage* web_connection_step (WebConnection* web_connection, GError** error)
                             gchar* name = g_steal_pointer (& field->name);
                             gchar* value = g_steal_pointer (& field->value);
 
-                            web_message_headers_append_take (web_message_headers, name, value);
+                            web_message_headers_append_take (web_message_headers, name, value, &tmperr);
                             web_parser_field_free (field);
+
+                            if (G_UNLIKELY (tmperr != NULL))
+                              break;
                           }
 
-                        if (self->http_version < WEB_HTTP_VERSION_1_1)
-                          web_message_set_is_closure (web_message, TRUE);
+                        if (G_UNLIKELY (tmperr != NULL))
+                          {
+                            _g_object_unref0 (web_message);
+                            g_propagate_error (error, tmperr);
+                          }
                         else
                           {
-                            if (!web_message_headers_get_keep_alive (web_message_headers))
+                            if (self->http_version < WEB_HTTP_VERSION_1_1)
                               web_message_set_is_closure (web_message, TRUE);
+                            else
+                              {
+                                if (!web_message_headers_get_keep_alive (web_message_headers))
+                                  web_message_set_is_closure (web_message, TRUE);
+                              }
                           }
 
                         web_parser_clear (& io->parser);
