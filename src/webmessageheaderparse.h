@@ -27,6 +27,7 @@ extern "C" {
 
   struct _WebMessageHeaders
   {
+    guint ref_count;
     GHashTable* fields;
     GQueue ranges;
     GQueue taken;
@@ -40,7 +41,7 @@ extern "C" {
   } WebMessageHeaderParseError;
 
   G_GNUC_INTERNAL GQuark web_message_header_parse_error_quark (void) G_GNUC_CONST;
-  G_GNUC_INTERNAL void _web_message_headers_parse_header (WebMessageHeaders* headers, gchar* key, gchar* value, GError** error);
+  G_GNUC_INTERNAL void _web_message_headers_parse_header (WebMessageHeaders* headers, gchar* key, gchar* value);
   G_GNUC_INTERNAL void _web_message_range_free (WebMessageRange* range);
 
 #if __cplusplus

@@ -329,6 +329,16 @@ static GIOStatus process_in (struct _InputIO* io, GPollableInputStream* stream, 
 return (io->parser.complete == FALSE) ? G_IO_STATUS_AGAIN : G_IO_STATUS_NORMAL;
 }
 
+static gpointer allocout (struct _OutputIO* io, gsize needed)
+{
+  if ((io->length + needed) > io->allocated)
+    {
+      io->allocated = (io->length + needed) << 1;
+      io->buffer = g_realloc (io->buffer, io->allocated);
+    }
+return G_STRUCT_MEMBER_P (io->buffer, io->length);
+}
+
 static void printout (struct _OutputIO* io, const gchar* fmt, ...)
 {
   va_list try, list;
@@ -339,14 +349,7 @@ static void printout (struct _OutputIO* io, const gchar* fmt, ...)
   G_VA_COPY (list, try);
 
   needed = g_printf_string_upper_bound (fmt, try);
-
-  if ((io->length + needed) > io->allocated)
-    {
-      io->allocated = (io->length + needed) << 1;
-      io->buffer = g_realloc (io->buffer, io->allocated);
-    }
-
-  block = G_STRUCT_MEMBER_P (io->buffer, io->length);
+  block = allocout (io, needed);
   wrote = g_vsnprintf (block, io->allocated, fmt, list);
   io->length += wrote;
 return (va_end (try), va_end (list), (void) wrote);
@@ -354,50 +357,51 @@ return (va_end (try), va_end (list), (void) wrote);
 
 static void serialize (struct _OutputIO* io, WebMessage* web_message)
 {
-  WebMessageBody* body = NULL;
-  const gchar* content_encoding = NULL;
-  GInputStream* content_stream = NULL;
-  const gchar* content_type = NULL;
-  gchar* date = NULL;
-  GDateTime* datetime = NULL;
   WebHttpVersion http_version = 0;
-  gboolean is_closure = FALSE;
-  gsize length = 0;
-  GIOStatus status = 0;
+  WebMessageBody* body = NULL;
+  WebMessageHeaders* headers = NULL;
+  WebMessageHeadersIter iter = {0};
   WebStatusCode status_code = 0;
+  GDateTime* datetime = NULL;
+  GIOStatus status = 0;
+  GList *list, *values = NULL;
+  gboolean is_closure = FALSE;
+  const gchar* key = NULL;
+  gsize length = 0;
 
-  body = web_message_get_response (web_message);
   datetime = g_date_time_new_now_utc ();
   http_version = web_message_get_http_version (web_message);
   is_closure = web_message_get_is_closure (web_message);
   status_code = web_message_get_status (web_message);
 
+  g_object_get (web_message, "response-body", &body, "response-headers", &headers, NULL);
+  web_message_headers_replace_take (headers, g_strdup (WEB_MESSAGE_FIELD_CONNECTION), g_strdup (is_closure ? "Close" : "Keep-Alive"));
+  web_message_headers_replace_take (headers, g_strdup (WEB_MESSAGE_FIELD_DATE), g_date_time_format (datetime, "%a, %d %b %Y %T GMT"));
+  web_message_headers_replace_take (headers, g_strdup (WEB_MESSAGE_FIELD_KEEP_ALIVE), g_strdup_printf ("timeout=%u", keepalive_timeout_secs));
+  web_message_headers_replace_take (headers, g_strdup (WEB_MESSAGE_FIELD_SERVER), g_strdup (PACKAGE_NAME "/" PACKAGE_VERSION));
+  web_message_headers_iter_init (&iter, headers);
+
   io->is_closure = is_closure;
+  io->splice = g_object_ref (G_POLLABLE_INPUT_STREAM (web_message_body_get_stream (body)));
 
-  printout (io, "HTTP/%s", web_http_version_to_string (http_version));
-  printout (io, " %i %s", status_code, web_status_code_get_inline (status_code));
-  printout (io, "\r\n");
-  printout (io, "Connection: %s\r\n", is_closure ? "Close" : "Keep-Alive");
+  printout (io, "HTTP/%s %i %s\r\n", web_http_version_to_string (http_version), status_code, web_status_code_get_inline (status_code));
 
-  if ((length = web_message_body_get_content_length (body)) > 0)
+  while (web_message_headers_iter_next (&iter, &key, &values))
     {
-      content_encoding = web_message_body_get_content_encoding (body);
-      content_stream = web_message_body_get_stream (body);
-      content_type = web_message_body_get_content_type (body);
+      for (list = values; list; list = list->next)
+        {
+          if (list == values)
+            printout (io, "%s: %s", key, list->data);
+          else
+            printout (io, ", %s", list->data);
+        }
 
-      io->splice = g_object_ref (G_POLLABLE_INPUT_STREAM (content_stream));
-
-      if (content_encoding != NULL)
-      printout (io, "Content-Encoding: %s\r\n", content_encoding);
-      printout (io, "Content-Length: %" G_GINT64_MODIFIER "i\r\n", length);
-      printout (io, "Content-Type: %s\r\n", content_type);
+      printout (io, "\r\n");
     }
 
-  printout (io, "Date: %s\r\n", date = g_date_time_format (datetime, "%a, %d %b %Y %T GMT"));
-  printout (io, "Keep-Alive: timeout=%u\r\n", keepalive_timeout_secs);
-  printout (io, "Server: " PACKAGE_NAME "/" PACKAGE_VERSION "\r\n");
+  web_message_body_unref (body);
+  web_message_headers_unref (headers);
   printout (io, "\r\n");
-  g_free (date);
 }
 
 static GIOStatus process_out (struct _OutputIO* io, GPollableOutputStream* stream, GError** error)
@@ -598,7 +602,6 @@ WebMessage* web_connection_step (WebConnection* web_connection, GError** error)
                           }
 
                         web_message = web_message_new ();
-                        web_message_headers = web_message_get_headers (web_message);
 
                         web_message_set_http_version (web_message, io->parser.http_version);
                         web_message_set_is_closure (web_message, FALSE);
@@ -621,33 +624,26 @@ WebMessage* web_connection_step (WebConnection* web_connection, GError** error)
                             g_object_set_qdata (G_OBJECT (web_message), seqid_quark (), GUINT_TO_POINTER (self->out.seqidn));
                           }
 
+                        g_object_get (web_message, "request-headers", &web_message_headers, NULL);
+
                         while ((field = g_queue_pop_head (& io->parser.fields)) != NULL)
                           {
                             gchar* name = g_steal_pointer (& field->name);
                             gchar* value = g_steal_pointer (& field->value);
 
-                            web_message_headers_append_take (web_message_headers, name, value, &tmperr);
+                            web_message_headers_append_take (web_message_headers, name, value);
                             web_parser_field_free (field);
-
-                            if (G_UNLIKELY (tmperr != NULL))
-                              break;
                           }
 
-                        if (G_UNLIKELY (tmperr != NULL))
-                          {
-                            _g_object_unref0 (web_message);
-                            g_propagate_error (error, tmperr);
-                          }
+                        if (self->http_version < WEB_HTTP_VERSION_1_1)
+                          web_message_set_is_closure (web_message, TRUE);
                         else
                           {
-                            if (self->http_version < WEB_HTTP_VERSION_1_1)
+                            if (!web_message_headers_get_keep_alive (web_message_headers))
                               web_message_set_is_closure (web_message, TRUE);
-                            else
-                              {
-                                if (!web_message_headers_get_keep_alive (web_message_headers))
-                                  web_message_set_is_closure (web_message, TRUE);
-                              }
                           }
+
+                        web_message_headers_unref (web_message_headers);
 
                         web_parser_clear (& io->parser);
                         web_parser_init (& io->parser);

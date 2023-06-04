@@ -21,6 +21,8 @@
 #include <webstatuscode.h>
 
 #define WEB_TYPE_MESSAGE (web_message_get_type ())
+#define WEB_TYPE_MESSAGE_BODY (web_message_body_get_type ())
+#define WEB_TYPE_MESSAGE_HEADERS (web_message_headers_get_type ())
 #define WEB_MESSAGE(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), WEB_TYPE_MESSAGE, WebMessage))
 #define WEB_IS_MESSAGE(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WEB_TYPE_MESSAGE))
 typedef struct _WebMessage WebMessage;
@@ -79,32 +81,21 @@ extern "C" {
   G_GNUC_INTERNAL GType web_message_get_type (void) G_GNUC_CONST;
   G_GNUC_INTERNAL GType web_message_body_get_type (void) G_GNUC_CONST;
   G_GNUC_INTERNAL GType web_message_headers_get_type (void) G_GNUC_CONST;
-  G_GNUC_INTERNAL void web_message_body_free (WebMessageBody* web_message_body);
-  G_GNUC_INTERNAL void web_message_headers_free (WebMessageHeaders* web_message_headers);
-  G_GNUC_INTERNAL WebMessage* web_message_new ();
-  G_GNUC_INTERNAL WebMessageBody* web_message_body_new ();
-  G_GNUC_INTERNAL WebMessageHeaders* web_message_headers_new ();
   G_GNUC_INTERNAL void web_message_body_add_bytes (WebMessageBody* web_message_body, GBytes* bytes);
   G_GNUC_INTERNAL void web_message_body_add_data (WebMessageBody* web_message_body, gpointer data, gsize length, GDestroyNotify notify);
-  G_GNUC_INTERNAL void web_message_body_set_content_encoding (WebMessageBody* web_message_body, const gchar* content_encoding);
-  G_GNUC_INTERNAL void web_message_body_set_content_length (WebMessageBody* web_message_body, gsize content_length);
-  G_GNUC_INTERNAL void web_message_body_set_content_type (WebMessageBody* web_message_body, const gchar* content_type);
-  G_GNUC_INTERNAL void web_message_body_set_stream (WebMessageBody* web_message_body, GInputStream* stream);
-  G_GNUC_INTERNAL const gchar* web_message_body_get_content_encoding (WebMessageBody* web_message_body);
-  G_GNUC_INTERNAL gsize web_message_body_get_content_length (WebMessageBody* web_message_body);
-  G_GNUC_INTERNAL const gchar* web_message_body_get_content_type (WebMessageBody* web_message_body);
   G_GNUC_INTERNAL GInputStream* web_message_body_get_stream (WebMessageBody* web_message_body);
+  G_GNUC_INTERNAL WebMessageBody* web_message_body_new ();
+  G_GNUC_INTERNAL WebMessageBody* web_message_body_ref (WebMessageBody* web_message_body);
+  G_GNUC_INTERNAL void web_message_body_set_stream (WebMessageBody* web_message_body, GInputStream* stream);
+  G_GNUC_INTERNAL void web_message_body_unref (WebMessageBody* web_message_body);
   G_GNUC_INTERNAL void web_message_freeze (WebMessage* web_message);
-  G_GNUC_INTERNAL WebMessageHeaders* web_message_get_headers (WebMessage* web_message);
   G_GNUC_INTERNAL WebHttpVersion web_message_get_http_version (WebMessage* web_message);
   G_GNUC_INTERNAL gboolean web_message_get_is_closure (WebMessage* web_message);
   G_GNUC_INTERNAL const gchar* web_message_get_method (WebMessage* web_message);
-  G_GNUC_INTERNAL WebMessageBody* web_message_get_request (WebMessage* web_message);
-  G_GNUC_INTERNAL WebMessageBody* web_message_get_response (WebMessage* web_message);
   G_GNUC_INTERNAL WebStatusCode web_message_get_status (WebMessage* web_message);
   G_GNUC_INTERNAL GUri* web_message_get_uri (WebMessage* web_message);
-  G_GNUC_INTERNAL void web_message_headers_append (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value, GError** error);
-  G_GNUC_INTERNAL void web_message_headers_append_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value, GError** error);
+  G_GNUC_INTERNAL void web_message_headers_append (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value);
+  G_GNUC_INTERNAL void web_message_headers_append_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value);
   G_GNUC_INTERNAL void web_message_headers_clear (WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL gboolean web_message_headers_contains (WebMessageHeaders* web_message_headers, const gchar* key);
   G_GNUC_INTERNAL goffset web_message_headers_get_content_length (WebMessageHeaders* web_message_headers);
@@ -117,9 +108,18 @@ extern "C" {
   G_GNUC_INTERNAL GList* web_message_headers_get_ranges (WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL void web_message_headers_iter_init (WebMessageHeadersIter* iter, WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL gboolean web_message_headers_iter_next (WebMessageHeadersIter* iter, gchar const** key, GList** values);
+  G_GNUC_INTERNAL WebMessageHeaders* web_message_headers_new ();
+  G_GNUC_INTERNAL WebMessageHeaders* web_message_headers_ref (WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL void web_message_headers_remove (WebMessageHeaders* web_message_headers, const gchar* key);
-  G_GNUC_INTERNAL void web_message_headers_replace (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value, GError** error);
-  G_GNUC_INTERNAL void web_message_headers_replace_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value, GError** error);
+  G_GNUC_INTERNAL void web_message_headers_replace (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value);
+  G_GNUC_INTERNAL void web_message_headers_replace_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value);
+  G_GNUC_INTERNAL void web_message_headers_set_content_disposition (WebMessageHeaders* web_message_headers, const gchar* disposition, ...) G_GNUC_NULL_TERMINATED;
+  G_GNUC_INTERNAL void web_message_headers_set_content_disposition_va (WebMessageHeaders* web_message_headers, const gchar* disposition, va_list l);
+  G_GNUC_INTERNAL void web_message_headers_set_content_length (WebMessageHeaders* web_message_headers, gsize length);
+  G_GNUC_INTERNAL void web_message_headers_set_content_range (WebMessageHeaders* web_message_headers, goffset begin_offset, goffset end_offset, goffset length);
+  G_GNUC_INTERNAL void web_message_headers_set_content_type (WebMessageHeaders* web_message_headers, const gchar* type);
+  G_GNUC_INTERNAL void web_message_headers_unref (WebMessageHeaders* web_message_headers);
+  G_GNUC_INTERNAL WebMessage* web_message_new ();
   G_GNUC_INTERNAL void web_message_set_http_version (WebMessage* web_message, WebHttpVersion http_version);
   G_GNUC_INTERNAL void web_message_set_is_closure (WebMessage* web_message, gboolean is_closure);
   G_GNUC_INTERNAL void web_message_set_method (WebMessage* web_message, const gchar* method);

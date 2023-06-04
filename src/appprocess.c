@@ -332,11 +332,12 @@ void _index (AppServer* self, WebMessage* message, GFile* root, GFile* target, G
         {
           case G_FILE_TYPE_REGULAR:
             {
+              gchar* filename = NULL;
               GFileInputStream* stream = NULL;
               GInputStream* stream2 = NULL;
               WebMessageBody* body = NULL;
+              WebMessageHeaders* headers = NULL;
 
-              body = web_message_get_response (message);
               stream = g_file_read (target, NULL, &tmperr);
 
               if (G_UNLIKELY (tmperr != NULL))
@@ -345,13 +346,21 @@ void _index (AppServer* self, WebMessage* message, GFile* root, GFile* target, G
                 {
                   stream2 = G_INPUT_STREAM (stream);
                   stream2 = _app_stream_new (stream2);
+                  filename = g_file_get_basename (target);
                   _g_object_unref0 (stream);
 
+                  g_object_get (message, "response-body", &body, NULL);
+                  g_object_get (message, "response-headers", &headers, NULL);
+
                   web_message_set_status (message, WEB_STATUS_CODE_OK);
-                  web_message_body_set_content_length (body, g_file_info_get_size (info));
-                  web_message_body_set_content_type (body, g_file_info_get_content_type (info));
                   web_message_body_set_stream (body, stream2);
+                  web_message_body_unref (body);
+                  web_message_headers_replace_take (headers, g_strdup ("content-disposition"), g_strdup_printf ("filename=%s", filename));
+                  web_message_headers_set_content_length (headers, g_file_info_get_size (info));
+                  web_message_headers_set_content_type (headers, g_file_info_get_content_type (info));
+                  web_message_headers_unref (headers);
                   _g_object_unref0 (stream2);
+                  _g_free0 (filename);
                 }
               break;
             }

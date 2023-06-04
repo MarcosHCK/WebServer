@@ -21,10 +21,16 @@
 #define WEB_MESSAGE_FIELD_ACCEPT_ENCODING ("accept-encoding")
 #define WEB_MESSAGE_FIELD_ACCEPT_LANGUAGE ("accept-language")
 #define WEB_MESSAGE_FIELD_CONNECTION ("connection")
+#define WEB_MESSAGE_FIELD_CONTENT_DISPOSITION ("content-disposition")
 #define WEB_MESSAGE_FIELD_CONTENT_ENCODING ("content-encoding")
 #define WEB_MESSAGE_FIELD_CONTENT_LENGTH ("content-length")
+#define WEB_MESSAGE_FIELD_CONTENT_RANGE ("content-range")
+#define WEB_MESSAGE_FIELD_CONTENT_TYPE ("content-type")
+#define WEB_MESSAGE_FIELD_DATE ("date")
 #define WEB_MESSAGE_FIELD_HOST ("host")
+#define WEB_MESSAGE_FIELD_KEEP_ALIVE ("keep-alive")
 #define WEB_MESSAGE_FIELD_RANGE ("range")
+#define WEB_MESSAGE_FIELD_SERVER ("server")
 #define WEB_MESSAGE_FIELD_USER_AGENT ("user-agent")
 
 #endif // __WEB_MESSAGE_FIELDS__

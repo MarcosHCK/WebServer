@@ -26,12 +26,13 @@ G_GNUC_INTERNAL guint _web_message_get_freeze_count (WebMessage* web_message);
 struct _WebMessagePrivate
 {
   guint freeze_count : 7;
-  WebMessageHeaders* headers;
   WebHttpVersion http_version;
   guint is_closure : 1;
   const gchar* method;
   WebMessageBody* request_body;
+  WebMessageHeaders* request_headers;
   WebMessageBody* response_body;
+  WebMessageHeaders* response_headers;
   WebStatusCode status_code;
   GUri* uri;
 };
@@ -42,7 +43,9 @@ enum
   prop_http_version,
   prop_method,
   prop_request_body,
+  prop_request_headers,
   prop_response_body,
+  prop_response_headers,
   prop_status,
   prop_uri,
   prop_number,
@@ -70,9 +73,10 @@ static void web_message_class_finalize (GObject* pself)
 {
   WebMessage* self = (gpointer) pself;
   WebMessagePrivate* priv = self->priv;
-  web_message_headers_free (priv->headers);
-  web_message_body_free (priv->request_body);
-  web_message_body_free (priv->response_body);
+  web_message_headers_unref (priv->request_headers);
+  web_message_headers_unref (priv->response_headers);
+  web_message_body_unref (priv->request_body);
+  web_message_body_unref (priv->response_body);
   _g_uri_unref0 (priv->uri);
 G_OBJECT_CLASS (web_message_parent_class)->finalize (pself);
 }
@@ -95,16 +99,22 @@ static void web_message_class_get_property (GObject* pself, guint property_id, G
         g_value_set_pointer (value, (gpointer) web_message_get_method (self));
         break;
       case prop_request_body:
-        g_value_set_static_boxed (value, web_message_get_request (self));
+        g_value_set_boxed (value, priv->request_body);
+        break;
+      case prop_request_headers:
+        g_value_set_boxed (value, priv->request_headers);
         break;
       case prop_response_body:
-        g_value_set_static_boxed (value, web_message_get_response (self));
+        g_value_set_boxed (value, priv->response_body);
+        break;
+      case prop_response_headers:
+        g_value_set_boxed (value, priv->response_headers);
         break;
       case prop_status:
         g_value_set_enum (value, priv->status_code);
         break;
       case prop_uri:
-        g_value_set_static_boxed (value, web_message_get_uri (self));
+        g_value_set_boxed (value, web_message_get_uri (self));
         break;
     }
 }
@@ -142,23 +152,35 @@ static void web_message_class_init (WebMessageClass* klass)
   G_OBJECT_CLASS (klass)->get_property = web_message_class_get_property;
   G_OBJECT_CLASS (klass)->set_property = web_message_class_set_property;
 
+  const GParamFlags flags1 = G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS;
+  const GParamFlags flags2 = G_PARAM_READABLE | G_PARAM_STATIC_STRINGS;
   const GType g_type = G_TYPE_FROM_CLASS (klass);
-  const GSignalFlags flags1 = G_SIGNAL_RUN_FIRST;
+  const GSignalFlags flags3 = G_SIGNAL_RUN_FIRST;
   const GSignalCMarshaller marshal1 = web_cclosure_marshal_VOID__INT;
 
-  signals [signal_frozen] = g_signal_new ("frozen", g_type, flags1, 0, NULL, NULL, marshal1, G_TYPE_NONE, 1, G_TYPE_INT);
-  signals [signal_thawed] = g_signal_new ("thawed", g_type, flags1, 0, NULL, NULL, marshal1, G_TYPE_NONE, 1, G_TYPE_INT);
+  properties [prop_http_version] = g_param_spec_enum ("http-version", "http-version", "http-version", WEB_TYPE_HTTP_VERSION, WEB_HTTP_VERSION_NONE, flags2);
+  properties [prop_method] = g_param_spec_string ("method", "method", "method", NULL, flags2);
+  properties [prop_request_body] = g_param_spec_boxed ("request-body", "request-body", "request-body", WEB_TYPE_MESSAGE_BODY, flags2);
+  properties [prop_request_headers] = g_param_spec_boxed ("request-headers", "request-headers", "request-headers", WEB_TYPE_MESSAGE_HEADERS, flags2);
+  properties [prop_response_body] = g_param_spec_boxed ("response-body", "response-body", "response-body", WEB_TYPE_MESSAGE_BODY, flags2);
+  properties [prop_response_headers] = g_param_spec_boxed ("response-headers", "response-headers", "response-headers", WEB_TYPE_MESSAGE_HEADERS, flags2);
+  properties [prop_status] = g_param_spec_enum ("status", "status", "status", WEB_TYPE_STATUS_CODE, WEB_STATUS_CODE_NONE, flags2);
+  properties [prop_uri] = g_param_spec_boxed ("uri", "uri", "uri", G_TYPE_URI, flags2);
+  g_object_class_install_properties (G_OBJECT_CLASS (klass), prop_number, properties);
+  signals [signal_frozen] = g_signal_new ("frozen", g_type, flags3, 0, NULL, NULL, marshal1, G_TYPE_NONE, 1, G_TYPE_INT);
+  signals [signal_thawed] = g_signal_new ("thawed", g_type, flags3, 0, NULL, NULL, marshal1, G_TYPE_NONE, 1, G_TYPE_INT);
 }
 
 static void web_message_init (WebMessage* self)
 {
   self->priv = web_message_get_instance_private (self);
   self->priv->freeze_count = 0;
-  self->priv->headers = web_message_headers_new ();
   self->priv->http_version = WEB_HTTP_VERSION_NONE;
   self->priv->method = NULL;
   self->priv->request_body = web_message_body_new ();
+  self->priv->request_headers = web_message_headers_new ();
   self->priv->response_body = web_message_body_new ();
+  self->priv->response_headers = web_message_headers_new ();
   self->priv->status_code = WEB_STATUS_CODE_NONE;
   self->priv->uri = NULL;
 }
@@ -183,13 +205,6 @@ void web_message_freeze (WebMessage* web_message)
   g_signal_emit (web_message, signals [signal_frozen], 0, ++priv->freeze_count);
 }
 
-WebMessageHeaders* web_message_get_headers (WebMessage* web_message)
-{
-  g_return_val_if_fail (WEB_IS_MESSAGE (web_message), NULL);
-  WebMessagePrivate* priv = web_message->priv;
-return priv->headers;
-}
-
 WebHttpVersion web_message_get_http_version (WebMessage* web_message)
 {
   g_return_val_if_fail (WEB_IS_MESSAGE (web_message), 0);
@@ -209,20 +224,6 @@ const gchar* web_message_get_method (WebMessage* web_message)
   g_return_val_if_fail (WEB_IS_MESSAGE (web_message), NULL);
   WebMessagePrivate* priv = web_message->priv;
 return priv->method;
-}
-
-WebMessageBody* web_message_get_request (WebMessage* web_message)
-{
-  g_return_val_if_fail (WEB_IS_MESSAGE (web_message), NULL);
-  WebMessagePrivate* priv = web_message->priv;
-return priv->request_body;
-}
-
-WebMessageBody* web_message_get_response (WebMessage* web_message)
-{
-  g_return_val_if_fail (WEB_IS_MESSAGE (web_message), NULL);
-  WebMessagePrivate* priv = web_message->priv;
-return priv->response_body;
 }
 
 WebStatusCode web_message_get_status (WebMessage* web_message)
@@ -272,7 +273,7 @@ void web_message_set_request_bytes (WebMessage* web_message, const gchar* conten
   WebMessagePrivate* priv = web_message->priv;
 
   web_message_body_add_bytes (priv->request_body, bytes);
-  web_message_body_set_content_type (priv->request_body, content_type);
+  web_message_headers_set_content_type (priv->request_headers, content_type);
 }
 
 void web_message_set_request_take (WebMessage* web_message, const gchar* content_type, gchar* request, gsize length)
@@ -281,7 +282,7 @@ void web_message_set_request_take (WebMessage* web_message, const gchar* content
   WebMessagePrivate* priv = web_message->priv;
 
   web_message_body_add_data (priv->request_body, request, length, g_free);
-  web_message_body_set_content_type (priv->request_body, content_type);
+  web_message_headers_set_content_type (priv->request_headers, content_type);
 }
 
 void web_message_set_response (WebMessage* web_message, const gchar* content_type, const gchar* response, gsize length)
@@ -296,8 +297,8 @@ void web_message_set_response_bytes (WebMessage* web_message, const gchar* conte
   WebMessagePrivate* priv = web_message->priv;
 
   web_message_body_add_bytes (priv->response_body, bytes);
-  web_message_body_set_content_length (priv->response_body, g_bytes_get_size (bytes));
-  web_message_body_set_content_type (priv->response_body, content_type);
+  web_message_headers_set_content_length (priv->response_headers, g_bytes_get_size (bytes));
+  web_message_headers_set_content_type (priv->response_headers, content_type);
 }
 
 void web_message_set_response_take (WebMessage* web_message, const gchar* content_type, gchar* response, gsize length)
@@ -306,8 +307,8 @@ void web_message_set_response_take (WebMessage* web_message, const gchar* conten
   WebMessagePrivate* priv = web_message->priv;
 
   web_message_body_add_data (priv->response_body, response, length, g_free);
-  web_message_body_set_content_length (priv->response_body, length);
-  web_message_body_set_content_type (priv->response_body, content_type);
+  web_message_headers_set_content_length (priv->response_headers, length);
+  web_message_headers_set_content_type (priv->response_headers, content_type);
 }
 
 void web_message_set_status (WebMessage* web_message, WebStatusCode status_code)

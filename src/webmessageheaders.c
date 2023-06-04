@@ -20,18 +20,6 @@
 #include <webmessageheaderparse.h>
 #include <webmessagemethods.h>
 
-static gpointer nullfunc (gpointer ptr)
-{
-  g_assert_not_reached ();
-}
-
-G_DEFINE_BOXED_TYPE (WebMessageHeaders, web_message_headers, nullfunc, web_message_headers_free);
-
-void _web_message_range_free (WebMessageRange* range)
-{
-  g_slice_free (WebMessageRange, range);
-}
-
 WebMessageHeaders* web_message_headers_new ()
 {
   WebMessageHeaders* self;
@@ -40,37 +28,56 @@ WebMessageHeaders* web_message_headers_new ()
   const GDestroyNotify func3 = (GDestroyNotify) g_queue_free;
 
   self = g_slice_new (WebMessageHeaders);
+  self->ref_count = 1;
   self->fields = g_hash_table_new_full (func1, func2, g_free, func3);
 return (g_queue_init (& self->taken), self);
 }
 
-void web_message_headers_free (WebMessageHeaders* web_message_headers)
+WebMessageHeaders* web_message_headers_ref (WebMessageHeaders* web_message_headers)
+{
+  g_return_val_if_fail (web_message_headers != NULL, NULL);
+  WebMessageHeaders* self = (web_message_headers);
+return (g_atomic_int_inc (&self->ref_count), self);
+}
+
+void web_message_headers_unref (WebMessageHeaders* web_message_headers)
 {
   g_return_if_fail (web_message_headers != NULL);
   WebMessageHeaders* self = (web_message_headers);
 
-  g_hash_table_remove_all (self->fields);
-  g_hash_table_unref (self->fields);
-  g_queue_clear_full (& self->ranges, (GDestroyNotify) _web_message_range_free);
-  g_queue_clear_full (& self->taken, (GDestroyNotify) g_free);
+  if (g_atomic_int_dec_and_test (&self->ref_count))
+    {
+      g_hash_table_remove_all (self->fields);
+      g_hash_table_unref (self->fields);
+      g_queue_clear_full (& self->ranges, (GDestroyNotify) _web_message_range_free);
+      g_queue_clear_full (& self->taken, (GDestroyNotify) g_free);
+      g_slice_free (WebMessageHeaders, self);
+    }
 }
 
-void web_message_headers_append (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value, GError** error)
+G_DEFINE_BOXED_TYPE (WebMessageHeaders, web_message_headers, web_message_headers_ref, web_message_headers_unref);
+
+void _web_message_range_free (WebMessageRange* range)
+{
+  g_slice_free (WebMessageRange, range);
+}
+
+void web_message_headers_append (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value)
 {
   g_return_if_fail (web_message_headers != NULL);
   g_return_if_fail (key != NULL && value != NULL);
   WebMessageHeaders* self = (web_message_headers);
 
-  web_message_headers_append_take (self, g_strdup (key), g_strdup (value), error);
+  web_message_headers_append_take (self, g_strdup (key), g_strdup (value));
 }
 
-void web_message_headers_append_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value, GError** error)
+void web_message_headers_append_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value)
 {
   g_return_if_fail (web_message_headers != NULL);
   g_return_if_fail (key != NULL && value != NULL);
   WebMessageHeaders* self = (web_message_headers);
 
-  _web_message_headers_parse_header (self, key, value, error);
+  _web_message_headers_parse_header (self, key, value);
 }
 
 void web_message_headers_clear (WebMessageHeaders* web_message_headers)
@@ -191,21 +198,88 @@ void web_message_headers_remove (WebMessageHeaders* web_message_headers, const g
   g_hash_table_remove (self->fields, key);
 }
 
-void web_message_headers_replace (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value, GError** error)
+void web_message_headers_replace (WebMessageHeaders* web_message_headers, const gchar* key, const gchar* value)
 {
   g_return_if_fail (web_message_headers != NULL);
   g_return_if_fail (key != NULL && value != NULL);
   WebMessageHeaders* self = (web_message_headers);
 
-  web_message_headers_replace_take (self, g_strdup (key), g_strdup (value), error);
+  web_message_headers_replace_take (self, g_strdup (key), g_strdup (value));
 }
 
-void web_message_headers_replace_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value, GError** error)
+void web_message_headers_replace_take (WebMessageHeaders* web_message_headers, gchar* key, gchar* value)
 {
   g_return_if_fail (web_message_headers != NULL);
   g_return_if_fail (key != NULL && value != NULL);
   WebMessageHeaders* self = (web_message_headers);
 
   web_message_headers_remove (self, key);
-  web_message_headers_append_take (self, key, value, error);
+  web_message_headers_append_take (self, key, value);
+}
+
+void web_message_headers_set_content_disposition (WebMessageHeaders* web_message_headers, const gchar* disposition, ...)
+{
+  g_return_if_fail (web_message_headers != NULL);
+  g_return_if_fail (disposition != NULL);
+  WebMessageHeaders* self = (web_message_headers);
+  va_list l;
+
+  va_start (l, disposition);
+  web_message_headers_set_content_disposition_va (self, disposition, l);
+  va_end (l);
+}
+
+void web_message_headers_set_content_disposition_va (WebMessageHeaders* web_message_headers, const gchar* disposition, va_list l)
+{
+  g_return_if_fail (web_message_headers != NULL);
+  g_return_if_fail (disposition != NULL);
+  WebMessageHeaders* self = (web_message_headers);
+  GQueue* list = NULL;
+  const gchar *key_ = WEB_MESSAGE_FIELD_CONTENT_DISPOSITION;
+  const gchar *key, *value;
+  gchar* value_ = NULL;
+
+  web_message_headers_replace (self, key_, disposition);
+  list = g_hash_table_lookup (self->fields, key_);
+  g_assert (list != NULL);
+
+  while (TRUE)
+    {
+      if ((key = va_arg (l, gchar*)) == NULL)
+        break;
+      else
+        {
+          value = va_arg (l, gchar*);
+          value_ = g_strdup_printf ("%s=%s", key, value);
+
+          g_queue_push_tail (list, value_);
+          g_queue_push_tail (& self->taken, value_);
+        }
+    }
+}
+
+void web_message_headers_set_content_length (WebMessageHeaders* web_message_headers, gsize length)
+{
+  g_return_if_fail (web_message_headers != NULL);
+  WebMessageHeaders* self = (web_message_headers);
+
+  web_message_headers_replace_take (self, g_strdup (WEB_MESSAGE_FIELD_CONTENT_LENGTH), g_strdup_printf ("%" G_GINT64_MODIFIER "u", length));
+}
+
+void web_message_headers_set_content_range (WebMessageHeaders* web_message_headers, goffset begin_offset, goffset end_offset, goffset length)
+{
+  g_return_if_fail (web_message_headers != NULL);
+  WebMessageHeaders* self = (web_message_headers);
+
+  web_message_headers_replace_take (self, g_strdup (WEB_MESSAGE_FIELD_CONTENT_RANGE),
+    g_strdup_printf ("%" G_GINT64_MODIFIER "u-%" G_GINT64_MODIFIER "u/%" G_GINT64_MODIFIER "u",
+      begin_offset, end_offset, length));
+}
+
+void web_message_headers_set_content_type (WebMessageHeaders* web_message_headers, const gchar* type)
+{
+  g_return_if_fail (web_message_headers != NULL);
+  WebMessageHeaders* self = (web_message_headers);
+
+  web_message_headers_replace_take (self, g_strdup (WEB_MESSAGE_FIELD_CONTENT_TYPE), g_strdup (type));
 }

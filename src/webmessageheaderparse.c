@@ -189,13 +189,9 @@ static guint append_values (GQueue* list, gchar* value)
 return (g_queue_clear (& tmp), added);
 }
 
-void _web_message_headers_parse_header (WebMessageHeaders* self, gchar* key, gchar* value, GError** error)
+void _web_message_headers_parse_header (WebMessageHeaders* self, gchar* key, gchar* value)
 {
-  if (!g_strcmp0 (key, WEB_MESSAGE_FIELD_CONTENT_ENCODING))
-    g_set_error (error, _PARSE_ERROR, _PARSE_ERROR_INVALID_FIELD, _("Invalid header '%s'"), value);
-  else if (!g_strcmp0 (key, WEB_MESSAGE_FIELD_CONTENT_LENGTH))
-    g_set_error (error, _PARSE_ERROR, _PARSE_ERROR_INVALID_FIELD, _("Invalid header '%s'"), value);
-  else if (!g_strcmp0 (key, WEB_MESSAGE_FIELD_RANGE))
+  if (!g_strcmp0 (key, WEB_MESSAGE_FIELD_RANGE))
     {
       GError* tmperr = NULL;
 
@@ -217,6 +213,7 @@ void _web_message_headers_parse_header (WebMessageHeaders* self, gchar* key, gch
             {
               g_queue_push_tail (& self->taken, value);
             }
+          g_free (key);
         }
       else
         {

@@ -22,9 +22,7 @@
 
 struct _WebMessageBody
 {
-  gchar* content_encoding;
-  gsize  content_length;
-  gchar* content_type;
+  guint ref_count;
 
   union /*<variant>*/
   {
@@ -33,17 +31,36 @@ struct _WebMessageBody
   };
 };
 
-static gpointer nullfunc (gpointer ptr)
-{
-  g_assert_not_reached ();
-}
-
-G_DEFINE_BOXED_TYPE (WebMessageBody, web_message_body, nullfunc, web_message_body_free);
-
 WebMessageBody* web_message_body_new ()
 {
-return g_slice_new0 (WebMessageBody);
+  WebMessageBody* self;
+
+  self = g_slice_new (WebMessageBody);
+  self->ref_count = 1;
+  self->backend = NULL;
+return self;
 }
+
+WebMessageBody* web_message_body_ref (WebMessageBody* web_message_body)
+{
+  g_return_val_if_fail (web_message_body != NULL, NULL);
+  WebMessageBody* self = (web_message_body);
+return (g_atomic_int_inc (&self->ref_count), self);
+}
+
+void web_message_body_unref (WebMessageBody* web_message_body)
+{
+  g_return_if_fail (web_message_body != NULL);
+  WebMessageBody* self = (web_message_body);
+
+  if (g_atomic_int_dec_and_test (&self->ref_count))
+    {
+      _g_object_unref0 (self->stream);
+      g_slice_free (WebMessageBody, self);
+    }
+}
+
+G_DEFINE_BOXED_TYPE (WebMessageBody, web_message_body, web_message_body_ref, web_message_body_unref);\
 
 void web_message_body_add_bytes (WebMessageBody* web_message_body, GBytes* bytes)
 {
@@ -75,26 +92,6 @@ void web_message_body_add_data (WebMessageBody* web_message_body, gpointer data,
     }
 }
 
-void web_message_body_set_content_encoding (WebMessageBody* web_message_body, const gchar* content_encoding)
-{
-  g_return_if_fail (web_message_body != NULL);
-  _g_free0 (web_message_body->content_encoding);
-  web_message_body->content_encoding = g_strdup (content_encoding);
-}
-
-void web_message_body_set_content_length (WebMessageBody* web_message_body, gsize content_length)
-{
-  g_return_if_fail (web_message_body != NULL);
-  web_message_body->content_length = content_length;
-}
-
-void web_message_body_set_content_type (WebMessageBody* web_message_body, const gchar* content_type)
-{
-  g_return_if_fail (web_message_body != NULL);
-  _g_free0 (web_message_body->content_type);
-  web_message_body->content_type = g_strdup (content_type);
-}
-
 void web_message_body_set_stream (WebMessageBody* web_message_body, GInputStream* stream)
 {
   g_return_if_fail (web_message_body != NULL);
@@ -103,37 +100,8 @@ void web_message_body_set_stream (WebMessageBody* web_message_body, GInputStream
   g_set_object (& web_message_body->stream, stream);
 }
 
-void web_message_body_free (WebMessageBody* web_message_body)
-{
-  g_return_if_fail (web_message_body != NULL);
-  WebMessageBody* self = (web_message_body);
-
-  _g_free0 (self->content_encoding);
-  _g_free0 (self->content_type);
-  _g_object_unref0 (self->stream);
-  g_slice_free (WebMessageBody, self);
-}
-
-const gchar* web_message_body_get_content_encoding (WebMessageBody* web_message_body)
-{
-  g_return_val_if_fail (web_message_body != NULL, NULL);
-return web_message_body->content_encoding;
-}
-
-gsize web_message_body_get_content_length (WebMessageBody* web_message_body)
-{
-  g_return_val_if_fail (web_message_body != NULL, 0);
-return web_message_body->content_length;
-}
-
-const gchar* web_message_body_get_content_type (WebMessageBody* web_message_body)
-{
-  g_return_val_if_fail (web_message_body != NULL, NULL);
-return web_message_body->content_type;
-}
-
 GInputStream* web_message_body_get_stream (WebMessageBody* web_message_body)
 {
   g_return_val_if_fail (web_message_body != NULL, NULL);
-return G_INPUT_STREAM (web_message_body->stream);
+return web_message_body->stream;
 }
