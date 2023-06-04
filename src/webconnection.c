@@ -32,6 +32,7 @@ G_GNUC_INTERNAL guint _web_message_get_freeze_count (WebMessage* web_message);
 #define _g_error_free0(var) ((var == NULL) ? NULL : (var = (g_error_free (var), NULL)))
 #define _g_free0(var) ((var == NULL) ? NULL : (var = (g_free (var), NULL)))
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
+const guint keepalive_timeout_secs = 6;
 typedef struct _Frame Frame;
 typedef struct _Range Range;
 
@@ -56,6 +57,7 @@ struct _WebConnection
     gsize length;
     WebParser parser;
     gsize unscanned;
+    gint64 uptime;
   } in;
 
   struct _OutputIO
@@ -230,6 +232,7 @@ static void web_connection_init (WebConnection* self)
   self->in.buffer = NULL;
   self->in.length = 0;
   self->in.unscanned = 0;
+  self->in.uptime = g_get_monotonic_time ();
   self->out.allocated = 0;
   self->out.buffer = NULL;
   self->out.is_closure = 0;
@@ -278,7 +281,7 @@ static GIOStatus process_in (struct _InputIO* io, GPollableInputStream* stream, 
               break;
             }
         }
-      else if (read == 0 && io->length == 0)
+      else if (read == 0 && io->unscanned == 0)
         return G_IO_STATUS_EOF;
       else
         {
@@ -289,6 +292,7 @@ static GIOStatus process_in (struct _InputIO* io, GPollableInputStream* stream, 
 
           io->length += read;
           io->unscanned = 0;
+          io->uptime = g_get_monotonic_time ();
 
           for (i = (io->length - unscanned - read); i < io->length; ++i)
             {
@@ -390,6 +394,7 @@ static void serialize (struct _OutputIO* io, WebMessage* web_message)
     }
 
   printout (io, "Date: %s\r\n", date = g_date_time_format (datetime, "%a, %d %b %Y %T GMT"));
+  printout (io, "Keep-Alive: timeout=%u\r\n", keepalive_timeout_secs);
   printout (io, "Server: " PACKAGE_NAME "/" PACKAGE_VERSION "\r\n");
   printout (io, "\r\n");
   g_free (date);
@@ -560,7 +565,11 @@ WebMessage* web_connection_step (WebConnection* web_connection, GError** error)
                 switch (status)
                   {
                     case G_IO_STATUS_AGAIN:
-                      break;
+                      {
+                        if ((g_get_monotonic_time () - self->in.uptime) < (keepalive_timeout_secs * G_USEC_PER_SEC))
+                          break;
+                        G_GNUC_FALLTHROUGH;
+                      }
 
                     case G_IO_STATUS_EOF:
                       g_input_stream_close (self->input_stream, NULL, NULL);
