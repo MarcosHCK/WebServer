@@ -59,12 +59,12 @@ webserver_SOURCES=\
 	webparser.c \
 	webserver.c \
 	webstatuscode.c
-webserver_CFLAGS=-flto \
+webserver_CFLAGS=$(GIO_CFLAGS) $(GTK_CFLAGS) \
 	-DG_LOG_DOMAIN=\"WebServer\" \
 	-DG_LOG_USE_STRUCTURED=1 \
-	$(GIO_CFLAGS)
+	-flto
 webserver_LDFLAGS=-flto
-webserver_LDADD=$(GIO_LIBS)
+webserver_LDADD=$(GIO_LIBS) $(GTK_LIBS)
 
 appresource.c: body.html
 appresource.c: item.html

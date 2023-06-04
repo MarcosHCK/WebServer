@@ -22,15 +22,6 @@
 
 #define _g_object_unref0(var) ((var == NULL) ? NULL : (var = (g_object_unref (var), NULL)))
 
-struct _AppServer
-{
-  GApplication parent;
-
-  /* private */
-  GHashTable* servers;
-  GThreadPool* thread_pool;
-};
-
 struct _AppRequest
 {
   GFile* root;
@@ -157,13 +148,13 @@ static void app_server_class_init (AppServerClass* klass)
   G_APPLICATION_CLASS (klass)->open = app_server_class_open;
 }
 
-static void request_proc (struct _AppRequest* request)
+static void request_proc (struct _AppRequest* request, AppServer* self)
 {
   GError* tmperr = NULL;
   GFile* root = request->root;
   WebMessage* message = request->web_message;
 
-  if ((_app_process (message, root, &tmperr)), G_UNLIKELY (tmperr == NULL))
+  if ((_app_process (self, message, root, &tmperr)), G_UNLIKELY (tmperr == NULL))
     web_message_thaw (message);
   else
     {
@@ -207,6 +198,8 @@ int main (int argc, gchar* argv [])
 
   const GClosureNotify notify = (GClosureNotify) g_object_unref;
   const GConnectFlags flags = (GConnectFlags) G_CONNECT_SWAPPED;
+
+  gtk_init (&argc, &argv);
 
   application = g_object_new (app_server_get_type (),
                               "application-id", "org.hck.webserver",

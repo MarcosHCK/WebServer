@@ -1,16 +1,9 @@
 <tr class="<!--{item::visibility}-->">
   <td sortable-data="<!--{standard::name}-->">
-    <table>
-      <tbody>
-        <tr>
-          <td>
-            <a class="<!--{item::type}-->" href="<!--{item::href}-->"><img alt="File:">
-              <!--{standard::display-name}-->
-            </a>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <a class="<!--{item::type}-->" href="/?apath=<!--{item::href}-->">
+      <img src="/icons/?type=<!--{standard::content-type}-->" alt="[<!--{item::type}-->]" />
+      <!--{standard::display-name}-->
+    </a>
   </td>
   <td sortable-data="<!--{standard::size}-->"><!--{item::size}--></td>
   <td sortable-data="<!--{time::access}-->"><!--{item::access}--></td>

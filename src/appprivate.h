@@ -16,14 +16,26 @@
  */
 #ifndef __APP_PROCESS__
 #define __APP_PROCESS__ 1
+#include <gtk/gtk.h>
 #include <webmessage.h>
+
+typedef struct _AppServer AppServer;
 
 #if __cplusplus
 extern "C" {
 #endif // __cplusplus
 
+  struct _AppServer
+  {
+    GApplication parent;
+
+    /* private */
+    GHashTable* servers;
+    GThreadPool* thread_pool;
+  };
+
   G_GNUC_INTERNAL GInputStream* _app_stream_new (GInputStream* base_stream);
-  G_GNUC_INTERNAL void _app_process (WebMessage* message, GFile* root, GError** error);
+  G_GNUC_INTERNAL void _app_process (AppServer* self, WebMessage* message, GFile* root, GError** error);
 
 #if __cplusplus
 }

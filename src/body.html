@@ -108,19 +108,6 @@
       .regular {
         margin-inline-start: 20px;
       }
-    
-      .directory::before,
-      .regular>img {
-        margin-inline-end: 4px;
-        margin-inline-start: -20px;
-        max-width: 16px;
-        max-height: 16px;
-        vertical-align: middle;
-      }
-    
-      .directory::before {
-        content: url(resource://content-accessible/html/folder.png);
-      }
     </style>
 
     <script type="application/javascript">
@@ -128,7 +115,7 @@
       var gTable, gOrderBy, gTBody, gRows, gUI_showHidden;
       document.addEventListener("DOMContentLoaded", function () {
         gTable = document.getElementsByTagName("table")[0];
-        gTBody = gTable.tBodies[0];
+        gTBody = gTable.tBodies[1];
         if (gTBody.rows.length < 2)
           return;
         gUI_showHidden = document.getElementById("UI_showHidden");
@@ -214,11 +201,18 @@
     <table class="" order="">
       <thead>
         <tr>
-          <th><a href="">Name</a></th>
-          <th><a href="">Size</a></th>
-          <th colspan="2"><a href="">Last Modified</a></th>
+          <th> <a href="">Name</a> </th>
+          <th> <a href="">Size</a> </th>
+          <th colspan="2"> <a href="">Last Modified</a> </th>
         </tr>
       </thead>
+
+      <tbody>
+        <tr>
+          <td colspan="5"><hr /></td>
+        </tr>
+      </tbody>
+
       <tbody>
         <!--{body::items}-->
       </tbody>

@@ -34,12 +34,14 @@ struct _ReplaceData
   gpointer plus;
 };
 
+#define RESROOT "/org/hck/webserver"
+
 #define _DEFINE_PAGE_SECTION(name) \
   static const gchar* page##name (void) G_GNUC_CONST; \
   static const gchar* page##name (void) \
   { \
     static gsize __value__ = 0; \
-    static const gchar* path = "/org/hck/webserver/" G_STRINGIFY (name) ".html"; \
+    static const gchar* path = RESROOT "/" G_STRINGIFY (name) ".html"; \
  ; \
     if (g_once_init_enter (&__value__)) \
       { \
@@ -90,7 +92,7 @@ _DEFINE_PAGE_SECTION (body)
 _DEFINE_PAGE_SECTION (item)
 #undef _DEFINE_PAGE_SECTION
 
-static void _forbidden (WebMessage* message, GFile* target)
+static void _forbidden (WebMessage* message)
 {
   web_message_set_status_full (message, WEB_STATUS_CODE_FORBIDDEN, "forbidden");
 }
@@ -235,7 +237,7 @@ static gboolean replace_item (const GMatchInfo* info, GString* buffer, ReplaceDa
   if (!strncmp ("item::access", repl, length))
     {
       GDateTime* date = g_file_info_get_access_date_time (data->info);
-      gchar* value = g_date_time_format_iso8601 (date);
+      gchar* value = g_date_time_format (date, "%F %T");
 
       g_string_append (buffer, value);
       g_date_time_unref (date);
@@ -245,18 +247,13 @@ static gboolean replace_item (const GMatchInfo* info, GString* buffer, ReplaceDa
     {
       gchar* rel;
 
-      g_string_append (buffer, (rel = g_file_get_relative_path (data->plus, data->file)));
+      g_string_append (buffer, (rel = g_file_get_relative_path (data->root, data->file)));
       g_free (rel);
-
-      if (g_file_info_get_file_type (data->info) == G_FILE_TYPE_DIRECTORY)
-        {
-          g_string_append_c (buffer, G_DIR_SEPARATOR);
-        }
     }
   else if (!strncmp ("item::modified", repl, length))
     {
       GDateTime* date = g_file_info_get_modification_date_time (data->info);
-      gchar* value = g_date_time_format_iso8601 (date);
+      gchar* value = g_date_time_format (date, "%F %T");
 
       g_string_append (buffer, value);
       g_date_time_unref (date);
@@ -298,11 +295,12 @@ return replace_info (info, buffer, G_STRUCT_MEMBER (gpointer, data, G_STRUCT_OFF
 return FALSE;
 }
 
-void _app_process (WebMessage* message, GFile* root, GError** error)
+void _index (AppServer* self, WebMessage* message, GFile* root, GFile* target, GError** error)
 {
   static const gchar* attr = G_FILE_ATTRIBUTE_ETAG_VALUE ","
                              G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE ","
                              G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME ","
+                             G_FILE_ATTRIBUTE_STANDARD_ICON ","
                              G_FILE_ATTRIBUTE_STANDARD_IS_HIDDEN ","
                              G_FILE_ATTRIBUTE_STANDARD_IS_SYMLINK ","
                              G_FILE_ATTRIBUTE_STANDARD_NAME ","
@@ -312,11 +310,8 @@ void _app_process (WebMessage* message, GFile* root, GError** error)
                              G_FILE_ATTRIBUTE_TIME_ACCESS ","
                              G_FILE_ATTRIBUTE_TIME_MODIFIED;
 
-  GError* tmperr = NULL;
-  const gchar* apath = g_uri_get_path (web_message_get_uri (message));
-  const gchar* rpath = g_path_skip_root (apath) == NULL ? "." : g_path_skip_root (apath);
   GCancellable* cancellable = g_cancellable_new ();
-  GFile* target = g_file_resolve_relative_path (root, rpath);
+  GError* tmperr = NULL;
   GFileInfo* info = NULL;
 
   if ((info = g_file_query_info (target, attr, 0, cancellable, &tmperr)), G_UNLIKELY (tmperr != NULL))
@@ -327,7 +322,7 @@ void _app_process (WebMessage* message, GFile* root, GError** error)
         g_propagate_error (error, tmperr);
       else
         {
-          _forbidden (message, target);
+          _forbidden (message);
           g_error_free (tmperr);
         }
     }
@@ -424,16 +419,140 @@ void _app_process (WebMessage* message, GFile* root, GError** error)
               break;
             }
 
-          default:
-            {
-              _forbidden (message, target);
+          default: _forbidden (message);
               break;
-            }
         }
 
       _g_object_unref0 (info);
     }
 
-  _g_object_unref0 (target);
   _g_object_unref0 (cancellable);
+}
+
+static gboolean _icon_source (gpointer data)
+{
+  AppServer* self = ((gpointer*) data) [0];
+  WebMessage* message = ((gpointer*) data) [1];
+  gchar* type = ((gpointer*) data) [2];
+  guint* geometry = ((gpointer*) data) [3];
+  GError** error = ((gpointer*) data) [4];
+  gint* done = ((gpointer*) data) [5];
+  gchar** buffer = ((gpointer*) data) [6];
+  gsize* length = ((gpointer*) data) [7];
+
+  GError* tmperr = NULL;
+  GIcon* icon = g_content_type_get_icon (type);
+  GtkIconTheme* theme = gtk_icon_theme_get_default ();
+  GtkIconInfo* info = gtk_icon_theme_lookup_by_gicon (theme, icon, *geometry, 0);
+  g_object_unref (icon);
+  GdkPixbuf* pixbuf = gtk_icon_info_load_icon (info, &tmperr);
+  g_object_unref (info);
+
+  if (G_UNLIKELY (tmperr != NULL))
+    {
+      _g_object_unref0 (pixbuf);
+      g_propagate_error (error, tmperr);
+    }
+  else
+    {
+      gdk_pixbuf_save_to_buffer (pixbuf, buffer, length, "png", &tmperr, NULL);
+      g_object_unref (pixbuf);
+
+      if (G_UNLIKELY (tmperr != NULL))
+        {
+          _g_free0 (buffer);
+          g_propagate_error (error, tmperr);
+        }
+    }
+return (g_atomic_int_set (done, TRUE), G_SOURCE_REMOVE);
+}
+
+static void _icon (AppServer* self, WebMessage* message, const gchar* type, guint geometry, GError** error)
+{
+  GError* tmperr = NULL;
+  gchar* buffer = NULL;
+  gsize length = 0;
+  gint done = 0;
+
+  gpointer data [] =
+    {
+      (gpointer) self,
+      (gpointer) message,
+      (gpointer) type,
+      (gpointer) & geometry,
+      (gpointer) & tmperr,
+      (gpointer) & done,
+      (gpointer) & buffer,
+      (gpointer) & length,
+    };
+
+  g_main_context_invoke (NULL, _icon_source, data);
+
+  while (g_atomic_int_get (&done) == FALSE)
+    g_thread_yield ();
+  if (G_UNLIKELY (tmperr != NULL))
+    {
+      _g_free0 (buffer);
+      g_propagate_error (error, tmperr);
+    }
+  else
+    {
+      web_message_set_status (message, WEB_STATUS_CODE_OK);
+      web_message_set_response_take (message, "image/png", buffer, length);
+    }
+}
+
+void _app_process (AppServer* self, WebMessage* message, GFile* root, GError** error)
+{
+  GError* tmperr = NULL;
+  GHashTable* params = NULL;
+  GUri* uri = web_message_get_uri (message);
+  const gchar* path = g_uri_get_path (uri);
+  const gchar* query = g_uri_get_query (uri);
+
+  path = (path == NULL) ? "/" : path;
+  query = (query == NULL) ? "" : query;
+
+  if ((params = g_uri_parse_params (query, -1, "&", G_URI_PARAMS_WWW_FORM, &tmperr)), G_UNLIKELY (tmperr != NULL))
+    g_propagate_error (error, tmperr);
+  else
+    {
+      if (!g_strcmp0 (path, "/"))
+        {
+          GFile* target = NULL;
+          const gchar* apath = NULL;
+          const gchar* order = NULL;
+          const gchar* rpath = NULL;
+
+          apath = g_hash_table_contains (params, "apath") == FALSE ? "/" : g_hash_table_lookup (params, "apath");
+          order = g_hash_table_contains (params, "order") == FALSE ? "n" : g_hash_table_lookup (params, "order");
+          rpath = g_path_skip_root (apath) == NULL ? apath : g_path_skip_root (apath);
+          target = g_file_resolve_relative_path (root, rpath);
+
+          _index (self, message, root, target, error);
+          g_object_unref (target);
+        }
+      else if (!g_strcmp0 (path, "/icons/"))
+        {
+          const gchar* type = NULL;
+          const gchar* size = NULL;
+          guint64 size_ = 0;
+          guint geometry = 0;
+
+          type = g_hash_table_contains (params, "type") == FALSE ? "unknown" : g_hash_table_lookup (params, "type");
+          size = g_hash_table_contains (params, "size") == FALSE ? "16" : g_hash_table_lookup (params, "size");
+          geometry = (g_ascii_string_to_unsigned (size, 10, 0, G_MAXINT, &size_, &tmperr), (guint) size_);
+
+          if (G_UNLIKELY (tmperr != NULL))
+            g_propagate_error (error, tmperr);
+          else
+            {
+              _icon (self, message, type, geometry, error);
+            }
+        }
+      else _forbidden (message);
+
+      g_hash_table_remove_all (params);
+      g_hash_table_unref (params);
+    }
 }
