@@ -29,6 +29,7 @@
 #define WEB_MESSAGE_FIELD_DATE ("date")
 #define WEB_MESSAGE_FIELD_HOST ("host")
 #define WEB_MESSAGE_FIELD_KEEP_ALIVE ("keep-alive")
+#define WEB_MESSAGE_FIELD_LOCATION ("location")
 #define WEB_MESSAGE_FIELD_RANGE ("range")
 #define WEB_MESSAGE_FIELD_SERVER ("server")
 #define WEB_MESSAGE_FIELD_USER_AGENT ("user-agent")

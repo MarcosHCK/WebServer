@@ -283,3 +283,11 @@ void web_message_headers_set_content_type (WebMessageHeaders* web_message_header
 
   web_message_headers_replace_take (self, g_strdup (WEB_MESSAGE_FIELD_CONTENT_TYPE), g_strdup (type));
 }
+
+void web_message_headers_set_location (WebMessageHeaders* web_message_headers, const gchar* uri)
+{
+  g_return_if_fail (web_message_headers != NULL);
+  WebMessageHeaders* self = (web_message_headers);
+
+  web_message_headers_replace_take (self, g_strdup (WEB_MESSAGE_FIELD_LOCATION), g_strdup (uri));
+}

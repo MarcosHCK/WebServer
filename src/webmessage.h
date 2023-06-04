@@ -118,11 +118,13 @@ extern "C" {
   G_GNUC_INTERNAL void web_message_headers_set_content_length (WebMessageHeaders* web_message_headers, gsize length);
   G_GNUC_INTERNAL void web_message_headers_set_content_range (WebMessageHeaders* web_message_headers, goffset begin_offset, goffset end_offset, goffset length);
   G_GNUC_INTERNAL void web_message_headers_set_content_type (WebMessageHeaders* web_message_headers, const gchar* type);
+  G_GNUC_INTERNAL void web_message_headers_set_location (WebMessageHeaders* web_message_headers, const gchar* uri);
   G_GNUC_INTERNAL void web_message_headers_unref (WebMessageHeaders* web_message_headers);
   G_GNUC_INTERNAL WebMessage* web_message_new ();
   G_GNUC_INTERNAL void web_message_set_http_version (WebMessage* web_message, WebHttpVersion http_version);
   G_GNUC_INTERNAL void web_message_set_is_closure (WebMessage* web_message, gboolean is_closure);
   G_GNUC_INTERNAL void web_message_set_method (WebMessage* web_message, const gchar* method);
+  G_GNUC_INTERNAL void web_message_set_redirect (WebMessage* web_message, WebStatusCode status_code, const gchar* redirect_uri);
   G_GNUC_INTERNAL void web_message_set_request (WebMessage* web_message, const gchar* content_type, const gchar* request, gsize length);
   G_GNUC_INTERNAL void web_message_set_request_bytes (WebMessage* web_message, const gchar* content_type, GBytes* bytes);
   G_GNUC_INTERNAL void web_message_set_request_take (WebMessage* web_message, const gchar* content_type, gchar* request, gsize length);

@@ -261,9 +261,19 @@ void web_message_set_method (WebMessage* web_message, const gchar* method)
   priv->method = g_intern_string (method);
 }
 
+void web_message_set_redirect (WebMessage* web_message, WebStatusCode status_code, const gchar* redirect_uri)
+{
+  g_return_if_fail (WEB_IS_MESSAGE (web_message));
+  WebMessagePrivate* priv = web_message->priv;
+
+  web_message_set_status_full (web_message, status_code, web_status_code_get_inline (status_code));
+  web_message_headers_set_location (priv->response_headers, redirect_uri);
+}
+
 void web_message_set_request (WebMessage* web_message, const gchar* content_type, const gchar* request, gsize length)
 {
   g_return_if_fail (WEB_IS_MESSAGE (web_message));
+
   web_message_set_request_take (web_message, content_type, g_strndup (request, length), length);
 }
 

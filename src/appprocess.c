@@ -92,9 +92,14 @@ _DEFINE_PAGE_SECTION (body)
 _DEFINE_PAGE_SECTION (item)
 #undef _DEFINE_PAGE_SECTION
 
-static void _forbidden (WebMessage* message)
+static void _status_forbidden (WebMessage* message)
 {
   web_message_set_status_full (message, WEB_STATUS_CODE_FORBIDDEN, "forbidden");
+}
+
+static void _status_not_found (WebMessage* message)
+{
+  web_message_set_status_full (message, WEB_STATUS_CODE_NOT_FOUND, "not found");
 }
 
 static gboolean replace_info (const GMatchInfo* match_info, GString* buffer, GFileInfo* info)
@@ -247,8 +252,11 @@ static gboolean replace_item (const GMatchInfo* info, GString* buffer, ReplaceDa
     {
       gchar* rel;
 
-      g_string_append (buffer, (rel = g_file_get_relative_path (data->root, data->file)));
+      g_string_append (buffer, (rel = g_file_get_relative_path (data->plus, data->file)));
       g_free (rel);
+
+      if (g_file_info_get_file_type (data->info) == G_FILE_TYPE_DIRECTORY)
+        g_string_append_c (buffer, '/');
     }
   else if (!strncmp ("item::modified", repl, length))
     {
@@ -322,7 +330,7 @@ void _index (AppServer* self, WebMessage* message, GFile* root, GFile* target, G
         g_propagate_error (error, tmperr);
       else
         {
-          _forbidden (message);
+          _status_forbidden (message);
           g_error_free (tmperr);
         }
     }
@@ -355,7 +363,6 @@ void _index (AppServer* self, WebMessage* message, GFile* root, GFile* target, G
                   web_message_set_status (message, WEB_STATUS_CODE_OK);
                   web_message_body_set_stream (body, stream2);
                   web_message_body_unref (body);
-                  web_message_headers_replace_take (headers, g_strdup ("content-disposition"), g_strdup_printf ("filename=%s", filename));
                   web_message_headers_set_content_length (headers, g_file_info_get_size (info));
                   web_message_headers_set_content_type (headers, g_file_info_get_content_type (info));
                   web_message_headers_unref (headers);
@@ -428,7 +435,7 @@ void _index (AppServer* self, WebMessage* message, GFile* root, GFile* target, G
               break;
             }
 
-          default: _forbidden (message);
+          default: _status_forbidden (message);
               break;
         }
 
@@ -526,40 +533,79 @@ void _app_process (AppServer* self, WebMessage* message, GFile* root, GError** e
     g_propagate_error (error, tmperr);
   else
     {
+  #define prefixed(a,static_) (strncmp ((a), (static_), sizeof ((static_)) - 1) == 0)
       if (!g_strcmp0 (path, "/"))
         {
-          GFile* target = NULL;
-          const gchar* apath = NULL;
-          const gchar* order = NULL;
-          const gchar* rpath = NULL;
-
-          apath = g_hash_table_contains (params, "apath") == FALSE ? "/" : g_hash_table_lookup (params, "apath");
-          order = g_hash_table_contains (params, "order") == FALSE ? "n" : g_hash_table_lookup (params, "order");
-          rpath = g_path_skip_root (apath) == NULL ? apath : g_path_skip_root (apath);
-          target = g_file_resolve_relative_path (root, rpath);
-
-          _index (self, message, root, target, error);
-          g_object_unref (target);
+          web_message_set_redirect (message, WEB_STATUS_CODE_SEE_OTHER, "index/");
         }
-      else if (!g_strcmp0 (path, "/icons/"))
+      else if (prefixed (path, "/index/"))
+        {
+          GFile* target = NULL;
+          const gchar* rpath = NULL;
+          const gchar* order = NULL;
+
+          rpath = path + (sizeof ("/index/") - 1);
+          order = g_hash_table_contains (params, "order") == FALSE ? "n" : g_hash_table_lookup (params, "order");
+          target = rpath [0] == 0 ? g_object_ref (root) : g_file_resolve_relative_path (root, rpath);
+
+          _index (self, message, root, target, &tmperr);
+          g_object_unref (target);
+
+          if (G_UNLIKELY (tmperr != NULL))
+            {
+              if (tmperr->domain != G_IO_ERROR)
+                g_propagate_error (error, tmperr);
+              else
+                {
+                  g_print ("tmperr: %s\n", tmperr->message);
+                  switch (tmperr->code)
+                    {
+                      default:
+                        g_propagate_error (error, tmperr);
+                        break;
+
+                      handled:
+                        g_error_free (tmperr);
+                        break;
+
+                      case G_IO_ERROR_NOT_FOUND:
+                        _status_not_found (message);
+                        goto handled;
+
+                      case G_IO_ERROR_PERMISSION_DENIED:
+                        _status_forbidden (message);
+                        goto handled;
+                    }
+                }
+            }
+        }
+      else if (prefixed (path, "/icons/"))
         {
           const gchar* type = NULL;
           const gchar* size = NULL;
           guint64 size_ = 0;
           guint geometry = 0;
 
-          type = g_hash_table_contains (params, "type") == FALSE ? "unknown" : g_hash_table_lookup (params, "type");
-          size = g_hash_table_contains (params, "size") == FALSE ? "16" : g_hash_table_lookup (params, "size");
-          geometry = (g_ascii_string_to_unsigned (size, 10, 0, G_MAXINT, &size_, &tmperr), (guint) size_);
-
-          if (G_UNLIKELY (tmperr != NULL))
-            g_propagate_error (error, tmperr);
+          if (*(type = path + (sizeof ("/icons/") - 1)) == 0)
+            _status_forbidden (message);
           else
             {
-              _icon (self, message, type, geometry, error);
+              size = g_hash_table_contains (params, "size") == FALSE ? "16" : g_hash_table_lookup (params, "size");
+              geometry = (g_ascii_string_to_unsigned (size, 10, 0, G_MAXINT, &size_, &tmperr), (guint) size_);
+
+              if (G_UNLIKELY (tmperr != NULL))
+                g_propagate_error (error, tmperr);
+              else
+                {
+                  _icon (self, message, type, geometry, error);
+                }
             }
         }
-      else _forbidden (message);
+      else
+        {
+          #undef prefixed
+          _status_forbidden (message);
+        }
 
       g_hash_table_remove_all (params);
       g_hash_table_unref (params);
