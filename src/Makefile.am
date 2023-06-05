@@ -66,8 +66,8 @@ webserver_CFLAGS=$(GIO_CFLAGS) $(GTK_CFLAGS) \
 webserver_LDFLAGS=-flto
 webserver_LDADD=$(GIO_LIBS) $(GTK_LIBS)
 
-appresource.c: body.html
-appresource.c: item.html
+appresource.c: index.css
+appresource.c: index.js
 
 webconnection.c: marshals.h
 webendpoint.c: marshals.h

@@ -21,8 +21,8 @@ along with WebServer. If not, see <http://www.gnu.org/licenses/>.
   <gresource prefix="/org/hck/webserver/">
 
     <!-- Page sections -->
-    <file>body.html</file>
-    <file>item.html</file>
+    <file>index.css</file>
+    <file>index.js</file>
 
   </gresource>
 
