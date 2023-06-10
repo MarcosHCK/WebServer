@@ -150,25 +150,8 @@ static void app_server_class_init (AppServerClass* klass)
 
 static void request_proc (struct _AppRequest* request, AppServer* self)
 {
-  GError* tmperr = NULL;
-  GFile* root = request->root;
-  WebMessage* message = request->web_message;
-
-  if ((_app_process (self, message, root, &tmperr)), G_UNLIKELY (tmperr == NULL))
-    web_message_thaw (message);
-  else
-    {
-      web_message_set_status (message, WEB_STATUS_CODE_INTERNAL_SERVER_ERROR);
-      web_message_set_is_closure (message, TRUE);
-      web_message_thaw (message);
-
-      const guint code = tmperr->code;
-      const gchar* domain = g_quark_to_string (tmperr->domain);
-      const gchar* message = tmperr->message;
-
-      g_warning ("(" G_STRLOC "): %s: %d: %s", domain, code, message);
-      g_error_free (tmperr);
-    }
+  _app_process (self, request->web_message, request->root);
+  web_message_thaw (request->web_message);
 }
 
 static void request_free (struct _AppRequest* request)

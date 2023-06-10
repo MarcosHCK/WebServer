@@ -35,7 +35,7 @@ extern "C" {
   };
 
   G_GNUC_INTERNAL GInputStream* _app_stream_new (GInputStream* base_stream);
-  G_GNUC_INTERNAL void _app_process (AppServer* self, WebMessage* message, GFile* root, GError** error);
+  G_GNUC_INTERNAL void _app_process (AppServer* self, WebMessage* message, GFile* root);
 
 #if __cplusplus
 }
