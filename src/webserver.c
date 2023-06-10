@@ -19,6 +19,7 @@
 #include <webconnection.h>
 #include <webendpoint.h>
 #include <webmessage.h>
+#include <webparser.h>
 #include <webserver.h>
 
 #define WEB_SERVER_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST ((klass), WEB_TYPE_SERVER, WebServerClass))
@@ -101,14 +102,45 @@ static void web_server_class_init (WebServerClass* klass)
 
 static gboolean do_got_failure (gpointer values)
 {
-  return (g_signal_emitv (values, signals [signal_got_failure], 0, NULL), G_SOURCE_REMOVE);
+  GError* tmperr = g_value_get_boxed (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, argument)));
+  WebConnection* web_connection = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, connection)));
+  WebMessage* web_message = web_message_new ();
+  WebServer* web_server = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, instance)));
+
+  web_message_set_http_version (web_message, WEB_HTTP_VERSION_1_1);
+  web_message_set_is_closure (web_message, TRUE);
+  g_signal_emitv (values, signals [signal_got_failure], 0, NULL);
+
+  if (tmperr->domain == WEB_PARSER_ERROR || g_error_matches (tmperr, WEB_CONNECTION_ERROR, WEB_CONNECTION_ERROR_MISMATCH_VERSION))
+    {
+      web_message_set_status_full (web_message, WEB_STATUS_CODE_BAD_REQUEST, "bad request");
+      web_message_set_is_closure (web_message, TRUE);
+    }
+  else if (tmperr->domain == WEB_CONNECTION_ERROR)
+    {
+      switch (tmperr->code)
+        {
+          default:
+          case WEB_CONNECTION_ERROR_REQUEST_OVERFLOW:
+            web_message_set_status_full (web_message, WEB_STATUS_CODE_INTERNAL_SERVER_ERROR, "internal server error");
+            web_message_set_is_closure (web_message, TRUE);
+            break;
+
+          case WEB_CONNECTION_ERROR_OLD_CLIENT:
+            web_message_set_upgrade_required (web_message, WEB_HTTP_VERSION_1_1);
+            break;
+        }
+    }
+
+  web_connection_send (web_connection, web_message);
+return (g_object_unref (web_message), G_SOURCE_REMOVE);
 }
 
 static gboolean do_got_request (gpointer values)
 {
-  WebServer* web_server = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, instance)));
-  WebMessage* web_message = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, argument)));
   WebConnection* web_connection = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, connection)));
+  WebMessage* web_message = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, argument)));
+  WebServer* web_server = g_value_get_object (G_STRUCT_MEMBER_P (values, G_STRUCT_OFFSET (SignalData, instance)));
   GValue handled [1] = { G_VALUE_INIT, };
 
   g_value_init (handled, G_TYPE_BOOLEAN);
@@ -120,15 +152,15 @@ static gboolean do_got_request (gpointer values)
       web_message_set_status (web_message, WEB_STATUS_CODE_NOT_IMPLEMENTED);
     }
 
-    web_connection_send (web_connection, web_message);
+  web_connection_send (web_connection, web_message);
 return (g_value_unset (handled), G_SOURCE_REMOVE);
 }
 
 static void signal_data_unref (gpointer ptr)
 {
-  g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, sizeof (GValue) * 0));
-  g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, sizeof (GValue) * 1));
-  g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, sizeof (GValue) * 2));
+  g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, G_STRUCT_OFFSET (SignalData, values [0])));
+  g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, G_STRUCT_OFFSET (SignalData, values [1])));
+  g_value_unset (& G_STRUCT_MEMBER (GValue, ptr, G_STRUCT_OFFSET (SignalData, values [2])));
   g_slice_free (SignalData, ptr);
 }
 
@@ -140,20 +172,22 @@ static void process (WebConnection* web_connection, WebServer* self)
   if ((web_message = web_connection_step (web_connection, &tmperr)), G_UNLIKELY (tmperr != NULL))
     {
       if (g_error_matches (tmperr, G_IO_ERROR, G_IO_ERROR_CONNECTION_CLOSED))
-        g_error_free (tmperr);
+        {
+          g_object_unref (web_connection);
+          g_error_free (tmperr);
+        }
       else
         {
           SignalData* data = g_slice_new0 (SignalData);
 
           g_value_init (& data->argument, G_TYPE_ERROR);
           g_value_take_boxed (& data->argument, tmperr);
-          g_value_init_from_instance (&data->connection, web_connection);
+          g_value_init_from_instance (& data->connection, web_connection);
           g_value_init_from_instance (& data->instance, self);
 
           g_main_context_invoke_full (self->context, G_PRIORITY_HIGH_IDLE, G_SOURCE_FUNC (do_got_failure), data, signal_data_unref);
+          g_thread_pool_push (self->workers, web_connection, NULL);
         }
-
-      g_object_unref (web_connection);
     }
   else
     {
@@ -161,9 +195,9 @@ static void process (WebConnection* web_connection, WebServer* self)
         {
           SignalData* data = g_slice_new0 (SignalData);
 
-          g_value_init_from_instance (&data->argument, web_message);
-          g_value_init_from_instance (&data->connection, web_connection);
-          g_value_init_from_instance (&data->instance, self);
+          g_value_init_from_instance (& data->argument, web_message);
+          g_value_init_from_instance (& data->connection, web_connection);
+          g_value_init_from_instance (& data->instance, self);
           g_object_unref (web_message);
 
           g_main_context_invoke_full (self->context, G_PRIORITY_HIGH_IDLE, G_SOURCE_FUNC (do_got_request), data, signal_data_unref);

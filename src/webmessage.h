@@ -133,6 +133,7 @@ extern "C" {
   G_GNUC_INTERNAL void web_message_set_response_take (WebMessage* web_message, const gchar* content_type, gchar* response, gsize length);
   G_GNUC_INTERNAL void web_message_set_status (WebMessage* web_message, WebStatusCode status_code);
   G_GNUC_INTERNAL void web_message_set_status_full (WebMessage* web_message, WebStatusCode status_code, const gchar* reason);
+  G_GNUC_INTERNAL void web_message_set_upgrade_required (WebMessage* web_message, WebHttpVersion version_required);
   G_GNUC_INTERNAL void web_message_set_uri (WebMessage* web_message, GUri* uri);
   G_GNUC_INTERNAL void web_message_thaw (WebMessage* web_message);
 

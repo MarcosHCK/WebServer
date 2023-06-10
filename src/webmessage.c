@@ -325,6 +325,7 @@ void web_message_set_status (WebMessage* web_message, WebStatusCode status_code)
 {
   g_return_if_fail (WEB_IS_MESSAGE (web_message));
   WebMessagePrivate* priv = web_message->priv;
+
   priv->status_code = status_code;
 }
 
@@ -335,6 +336,16 @@ void web_message_set_status_full (WebMessage* web_message, WebStatusCode status_
 
   priv->status_code = status_code;
   web_message_set_response (web_message, "text/plain", reason, strlen (reason));
+}
+
+void web_message_set_upgrade_required (WebMessage* web_message, WebHttpVersion version_required)
+{
+  g_return_if_fail (WEB_IS_MESSAGE (web_message));
+  WebStatusCode status_code = WEB_STATUS_CODE_UPGRADE_REQUIRED;
+  WebMessagePrivate* priv = web_message->priv;
+
+  web_message_set_status_full (web_message, status_code, web_status_code_get_inline (status_code));
+  web_message_headers_replace_take (priv->response_headers, g_strdup ("Upgrade"), g_strconcat ("HTTP/", web_http_version_to_string (version_required), NULL));
 }
 
 void web_message_set_uri (WebMessage* web_message, GUri* uri)

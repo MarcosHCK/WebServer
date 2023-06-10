@@ -377,8 +377,9 @@ static void serialize (struct _OutputIO* io, WebMessage* web_message)
   g_object_get (web_message, "response-body", &body, "response-headers", &headers, NULL);
   web_message_headers_replace_take (headers, g_strdup (WEB_MESSAGE_FIELD_CONNECTION), g_strdup (is_closure ? "Close" : "Keep-Alive"));
   web_message_headers_replace_take (headers, g_strdup (WEB_MESSAGE_FIELD_DATE), g_date_time_format (datetime, "%a, %d %b %Y %T GMT"));
-  web_message_headers_replace_take (headers, g_strdup (WEB_MESSAGE_FIELD_KEEP_ALIVE), g_strdup_printf ("timeout=%u", keepalive_timeout_secs));
   web_message_headers_replace_take (headers, g_strdup (WEB_MESSAGE_FIELD_SERVER), g_strdup (PACKAGE_NAME "/" PACKAGE_VERSION));
+  if (is_closure == FALSE)
+  web_message_headers_replace_take (headers, g_strdup (WEB_MESSAGE_FIELD_KEEP_ALIVE), g_strdup_printf ("timeout=%u", keepalive_timeout_secs));
   web_message_headers_iter_init (&iter, headers);
 
   io->is_closure = is_closure;
@@ -463,13 +464,15 @@ static GIOStatus process_out (struct _OutputIO* io, GPollableOutputStream* strea
 
           if ((frame = g_queue_peek_head (& io->queue)) == NULL)
             g_mutex_unlock (& io->lock);
-          else if ((frame->seqid == 0) || ((frame->seqid - 1) == io->seqidp) == FALSE)
+          else if (((frame->seqid == 0) || ((frame->seqid - 1) == io->seqidp)) == FALSE)
             g_mutex_unlock (& io->lock);
           else
             {
-              io->seqidp = frame->seqid;
+              io->seqidp = (frame->seqid == 0) ? io->seqidp : frame->seqid;
+
               g_queue_pop_head (& io->queue);
               g_mutex_unlock (& io->lock);
+
               serialize (io, frame->web_message);
               frame_free (frame);
             }
