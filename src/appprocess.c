@@ -118,6 +118,7 @@ void _index (AppServer* self, WebMessage* message, GFile* root, GFile* target, G
                   GEnumValue* enumv = NULL;
                   gsize filesize = 0;
                   GFileType filetype = 0;
+                  gchar* href = NULL;
                   GFile* item = NULL;
                   GEnumClass* klass = NULL;
                   GDateTime* lastaccess = NULL;
@@ -207,15 +208,18 @@ void _index (AppServer* self, WebMessage* message, GFile* root, GFile* target, G
                         {
                           filesize = g_file_info_get_size (info2);
                           filetype = g_file_info_get_file_type (info2);
+                          href = g_uri_escape_string (rel = g_file_get_relative_path (target, item), NULL, TRUE);
                           lastaccess = g_file_info_get_access_date_time (info2);
                           lastmodify = g_file_info_get_modification_date_time (info2);
 
+                          _g_free0 (rel);
                           g_string_append_printf (buffer, "<tr%s>\r\n", g_file_info_get_is_hidden (info2) == FALSE ? "" : " class=\"hidden-object\"");
                           g_string_append_printf (buffer, "<td sortable-data=\"%s\">", g_file_info_get_display_name (info2));
-                          g_string_append_printf (buffer, "<a class=\"%s\" href=\"%s%s\">", g_enum_get_value (klass, filetype)->value_nick, rel = g_file_get_relative_path (target, item), filetype != G_FILE_TYPE_DIRECTORY ? "" : "/");
-                          _g_free0 (rel);
+                          g_string_append_printf (buffer, "<a class=\"%s\" href=\"%s%s\">", g_enum_get_value (klass, filetype)->value_nick, href, filetype != G_FILE_TYPE_DIRECTORY ? "" : "/");
+                          _g_free0 (href);
                           g_string_append_printf (buffer, "<img src=\"/icons/%s\"/ alt=\"[%s]\">", g_file_info_get_content_type (info2), g_enum_get_value (klass, filetype)->value_nick);
-                          g_string_append (buffer, g_file_info_get_display_name (info2));
+                          g_string_append (buffer, rel = g_markup_escape_text (g_file_info_get_display_name (info2), -1));
+                          _g_free0 (rel);
                           g_string_append_static (buffer, "</a></td>");
                           g_string_append_printf (buffer, "<td sortable-data=\"%" G_GINT64_MODIFIER "u\">%s</td>", filesize, filetype == G_FILE_TYPE_DIRECTORY ? "" : g_format_size_full (filesize, G_FORMAT_SIZE_LONG_FORMAT));
                           g_string_append_printf (buffer, "<td sortable-data=\"%" G_GINT64_MODIFIER "u\">%s</td>", g_date_time_to_unix (lastaccess), lastaccess_f = g_date_time_format (lastaccess, "%T %F"));
